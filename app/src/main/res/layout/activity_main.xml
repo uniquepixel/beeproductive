@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@color/bee_soft_yellow"
     android:clipChildren="false"
-    tools:context=".MainActivity">
+    tools:context=".frontend.MainActivity">
 
     <!-- Subtle Hexagon Background Pattern -->
     <ImageView

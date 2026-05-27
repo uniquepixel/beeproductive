@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@color/bee_soft_yellow"
     android:clipChildren="false"
-    tools:context=".SettingsActivity">
+    tools:context=".frontend.SettingsActivity">
 
     <!-- Subtle Hexagon Background Pattern (Consistent with Main) -->
     <ImageView
@@ -127,6 +127,7 @@
                 app:iconTint="@color/bee_yellow" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/backButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="64dp"

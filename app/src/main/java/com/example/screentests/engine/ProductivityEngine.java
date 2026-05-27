@@ -21,7 +21,7 @@ public class ProductivityEngine {
     private final MutableLiveData<ProductivityState> stateLiveData = new MutableLiveData<>(ProductivityState.initial());
     
     // Internal thread for the scheduled tick
-    private final ScheduledExecutorService scheduler = Executors.newSingleFixedThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     // Executor for DB calls
     private final ScheduledExecutorService dbExecutor = Executors.newSingleThreadScheduledExecutor();
     

@@ -28,7 +28,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-        info.flags = AccessibilityServiceInfo.FLAG_DEFAULT;
+        info.flags = AccessibilityServiceInfo.FLAG_DEFAULT; //funktioniert mit FLAG_INCLUDE_NOT_IMPORTANT_VIEWS aber weiß nicht ob wir dann functionality verlieren
         this.setServiceInfo(info);
     }
 
