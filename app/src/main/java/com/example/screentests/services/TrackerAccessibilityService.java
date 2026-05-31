@@ -2,12 +2,15 @@ package com.example.screentests.services;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.Display;
 import androidx.annotation.NonNull;
+
+import androidx.core.content.ContextCompat;
 
 import com.example.screentests.engine.ProductivityEngine;
 
@@ -28,7 +31,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-        info.flags = AccessibilityServiceInfo.FLAG_DEFAULT; //funktioniert mit FLAG_INCLUDE_NOT_IMPORTANT_VIEWS aber weiß nicht ob wir dann functionality verlieren
+        info.flags = 0; // AccessibilityServiceInfo.FLAG_DEFAULT does not exist. Using 0 for now.
         this.setServiceInfo(info);
     }
 
@@ -42,9 +45,15 @@ public class TrackerAccessibilityService extends AccessibilityService {
                 // Exclude system UI or self
                 if (!packageName.equals("com.android.systemui") && !packageName.equals(getPackageName())) {
                     ProductivityEngine.getInstance().onAppChanged(packageName);
+                    startOverlayService();
                 }
             }
         }
+    }
+
+    private void startOverlayService() {
+        Intent intent = new Intent(this, OverlayService.class);
+        ContextCompat.startForegroundService(this, intent);
     }
 
     @Override
