@@ -40,11 +40,8 @@ public class OverlayService extends Service {
     private int score = -1; //0 to 100
     private boolean isInterventionShowing = false;
     private boolean isObserverRegistered = false;
-<<<<<<< Updated upstream
     private int currentScore = 0;
-=======
     private BeeManager beeManager;
->>>>>>> Stashed changes
 
     private final Observer<ProductivityState> stateObserver = state -> {
         currentScore = state.getScore();
