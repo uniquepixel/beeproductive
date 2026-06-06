@@ -40,9 +40,11 @@ public class OverlayService extends Service {
     private int lastLevel = -1;
     private boolean isInterventionShowing = false;
     private boolean isObserverRegistered = false;
+    private int currentScore = 0;
 
     private final Observer<ProductivityState> stateObserver = state -> {
-        Log.d(TAG, "Received state update: level=" + state.getLevel() + ", showIntervention=" + state.isShowInterventionOverlay());
+        currentScore = state.getScore();
+        Log.d(TAG, "Received state update: score=" + currentScore + ", level=" + state.getLevel() + ", showIntervention=" + state.isShowInterventionOverlay());
         updateBees(state.getLevel());
         updateIntervention(state.isShowInterventionOverlay());
     };
