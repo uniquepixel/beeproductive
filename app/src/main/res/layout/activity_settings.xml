@@ -126,11 +126,40 @@
                 app:iconSize="18dp"
                 app:iconTint="@color/bee_yellow" />
 
+            <!-- DEBUG SECTION -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="Debug Tools"
+                android:textColor="@color/bee_dark"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/debugTriggerOverlayButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Show Swarm (Debug)"
+                android:textColor="#D32F2F"
+                app:strokeColor="#D32F2F" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/debugTriggerInterventionButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Show Intervention (Debug)"
+                android:textColor="#D32F2F"
+                app:strokeColor="#D32F2F" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/backButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="64dp"
+                android:layout_marginTop="48dp"
                 android:text="Back to Main"
                 android:textColor="@color/bee_dark"
                 app:backgroundTint="@color/bee_yellow" />

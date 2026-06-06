@@ -203,6 +203,23 @@ public class ProductivityEngine {
         }
     }
 
+    /**
+     * For debugging/testing the UI without modifying the internal score.
+     */
+    public void debugTriggerUI(int level, boolean showIntervention) {
+        ProductivityState current = stateLiveData.getValue();
+        String pkg = (current != null) ? current.getCurrentPackageName() : "";
+        ProductivityState debugState = new ProductivityState(
+                currentScore,
+                level,
+                showIntervention,
+                pkg,
+                false,
+                false
+        );
+        stateLiveData.postValue(debugState);
+    }
+
     public void setGeminiConsent(String packageName, int consent) {
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);

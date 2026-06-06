@@ -36,11 +36,15 @@ public class OverlayService extends Service {
 
     private WindowManager windowManager;
     private View interventionOverlay;
-    private List<View> bees = new ArrayList<>();
     private int lastLevel = -1;
+    private int score = -1; //0 to 100
     private boolean isInterventionShowing = false;
     private boolean isObserverRegistered = false;
+<<<<<<< Updated upstream
     private int currentScore = 0;
+=======
+    private BeeManager beeManager;
+>>>>>>> Stashed changes
 
     private final Observer<ProductivityState> stateObserver = state -> {
         currentScore = state.getScore();
@@ -54,6 +58,7 @@ public class OverlayService extends Service {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        beeManager = new BeeManager(this, windowManager);
         createNotificationChannel();
     }
 
@@ -79,52 +84,8 @@ public class OverlayService extends Service {
     }
 
     private void updateBees(int level) {
-        // TODO: update logic when swarm logic is implemented in frontend
         if (level == lastLevel) return;
-        Log.d(TAG, "Updating bees to level: " + level);
-        
-        // Remove old bees
-        for (View bee : bees) {
-            try {
-                windowManager.removeView(bee);
-            } catch (Exception e) {
-                Log.e(TAG, "Error removing bee view", e);
-            }
-        }
-        bees.clear();
-
-        if (level > 0) {
-            int beeCount = level * 3;
-            Random random = new Random();
-            
-            Rect bounds = getScreenBounds();
-            int screenWidth = bounds.width();
-            int screenHeight = bounds.height();
-
-            for (int i = 0; i < beeCount; i++) {
-                ImageView bee = new ImageView(this);
-                bee.setImageResource(R.drawable.ic_launcher_foreground);
-                bee.setAlpha(0.6f);
-
-                int size = 100 + random.nextInt(100);
-                WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                        size, size,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        PixelFormat.TRANSLUCENT);
-
-                params.gravity = Gravity.TOP | Gravity.START;
-                params.x = random.nextInt(Math.max(1, screenWidth - size));
-                params.y = random.nextInt(Math.max(1, screenHeight - size));
-
-                try {
-                    windowManager.addView(bee, params);
-                    bees.add(bee);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error adding bee view", e);
-                }
-            }
-        }
+        beeManager.initBeeSwarm(level);
         lastLevel = level;
     }
 
@@ -165,15 +126,16 @@ public class OverlayService extends Service {
         }
     }
 
-    private Rect getScreenBounds() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowMetrics windowMetrics = windowManager.getCurrentWindowMetrics();
-            return windowMetrics.getBounds();
-        } else {
-            // fallback
-            return new Rect(0, 0, windowManager.getDefaultDisplay().getWidth(), windowManager.getDefaultDisplay().getHeight());
-        }
-    }
+    //no usages of this method -> delete?
+//    private Rect getScreenBounds() {
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+//            WindowMetrics windowMetrics = windowManager.getCurrentWindowMetrics();
+//            return windowMetrics.getBounds();
+//        } else {
+//            // fallback
+//            return new Rect(0, 0, windowManager.getDefaultDisplay().getWidth(), windowManager.getDefaultDisplay().getHeight());
+//        }
+//    }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -196,12 +158,8 @@ public class OverlayService extends Service {
         if (isObserverRegistered) {
             ProductivityEngine.getInstance().getState().removeObserver(stateObserver);
         }
-        for (View bee : bees) {
-            try {
-                windowManager.removeView(bee);
-            } catch (Exception e) {
-                // Ignore
-            }
+        if (beeManager != null) {
+            beeManager.removeAllBees();
         }
         if (interventionOverlay != null) {
             try {
