@@ -34,14 +34,21 @@ public class SingleBee {
     }
 
     //https://en.wikipedia.org/wiki/Boids if you dont know what is going on here
-    void calculateSeparationForce() {
+    protected void calculateSeparationForce() {
         //TODO: calculate separation force
     }
-    void calculateAlignmentForce() {
+    protected void calculateAlignmentForce() {
         //TODO: calculate alignment force
     }
-    void calculateCohesionForce() {
+    protected void calculateCohesionForce() {
         //TODO: calculate cohesion force
+    }
+
+    protected void calculateTotalForce() {
+        //TODO: calculate total force
+    }
+    public int getPosition(BeeManager.dim dimension) {
+        return (dimension == BeeManager.dim.WIDTH) ? posX : posY;
     }
 }
 

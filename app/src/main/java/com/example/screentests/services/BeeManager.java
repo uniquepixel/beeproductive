@@ -14,23 +14,25 @@ import java.util.ArrayList;
 
 
 public class BeeManager {
-    public enum Dimension { WIDTH, HEIGHT }
+    public enum dim {WIDTH, HEIGHT}//also used by SingleBee!
 
     private static final String TAG = "BeeManager";
     private final Context context;
     private final WindowManager windowManager;
     private final ArrayList<SingleBee> bees = new ArrayList<>();
     private final int maxVisualOverhead = 100; //determines how far off the screen bees can go
+    private int score = -1;
 
-    public BeeManager(Context context, WindowManager windowManager) {
+    public BeeManager(Context context, WindowManager windowManager, int score) {
         this.context = context;
         this.windowManager = windowManager;//dont need it rn but hey, you have what you have
+        this.score = score;
     }
 
-    public int getWindowSize(Dimension dimension) {
+    public int getWindowSize(dim dimension) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Rect bounds = windowManager.getCurrentWindowMetrics().getBounds();
-            return dimension == Dimension.WIDTH ? bounds.width() : bounds.height();
+            return dimension == dim.WIDTH ? bounds.width() : bounds.height();
         }
         return -1; //fail case because the compiler is a dipshit
     }
@@ -38,7 +40,7 @@ public class BeeManager {
     public void initBeeSwarm(int intensity) {
         Log.d(TAG, "Updating bee swarm to level/with intensity: " + intensity);
         for (int i = 0; i < intensity; i++) {
-            SingleBee curBee = new SingleBee(getWindowSize(Dimension.WIDTH), getWindowSize(Dimension.HEIGHT), 2 * maxVisualOverhead);//i double MaxVisualOverhead to account for both screen ends
+            SingleBee curBee = new SingleBee(getWindowSize(dim.WIDTH), getWindowSize(dim.HEIGHT), 2 * maxVisualOverhead);//i double MaxVisualOverhead to account for both screen ends
             bees.add(curBee);
         }
         for (SingleBee bee : bees) {

@@ -55,7 +55,7 @@ public class OverlayService extends Service {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        beeManager = new BeeManager(this, windowManager);
+        beeManager = new BeeManager(this, windowManager, currentScore);
         createNotificationChannel();
     }
 
