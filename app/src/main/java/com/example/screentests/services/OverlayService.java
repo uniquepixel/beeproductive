@@ -6,16 +6,12 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.graphics.PixelFormat;
-import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.WindowMetrics;
-import android.widget.ImageView;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -25,10 +21,6 @@ import com.example.screentests.R;
 import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-
 public class OverlayService extends Service {
     private static final String TAG = "OverlayService";
     private static final String CHANNEL_ID = "OverlayServiceChannel";
@@ -37,15 +29,13 @@ public class OverlayService extends Service {
     private WindowManager windowManager;
     private View interventionOverlay;
     private int lastLevel = -1;
-    private int score = -1; //0 to 100
     private boolean isInterventionShowing = false;
     private boolean isObserverRegistered = false;
-    private int currentScore = 0;
     private BeeManager beeManager;
 
     private final Observer<ProductivityState> stateObserver = state -> {
-        currentScore = state.getScore();
-        Log.d(TAG, "Received state update: score=" + currentScore + ", level=" + state.getLevel() + ", showIntervention=" + state.isShowInterventionOverlay());
+        Log.d(TAG, "Received state update: score=" + state.getScore() + ", level=" + state.getLevel() + ", showIntervention=" + state.isShowInterventionOverlay());
+        // FIX: Pass the actual level from state
         updateBees(state.getLevel());
         updateIntervention(state.isShowInterventionOverlay());
     };
@@ -55,7 +45,7 @@ public class OverlayService extends Service {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        beeManager = new BeeManager(this, windowManager, currentScore);
+        beeManager = new BeeManager(this, windowManager, 0);
         createNotificationChannel();
     }
 
@@ -82,7 +72,15 @@ public class OverlayService extends Service {
 
     private void updateBees(int level) {
         if (level == lastLevel) return;
+        Log.d(TAG, "Updating bees for level: " + level);
+        
         beeManager.initBeeSwarm(level);
+        if (level > 0) {
+            beeManager.startSimulation();
+        } else {
+            beeManager.removeAllBees();
+        }
+        
         lastLevel = level;
     }
 
@@ -123,17 +121,6 @@ public class OverlayService extends Service {
         }
     }
 
-    //no usages of this method -> delete?
-//    private Rect getScreenBounds() {
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-//            WindowMetrics windowMetrics = windowManager.getCurrentWindowMetrics();
-//            return windowMetrics.getBounds();
-//        } else {
-//            // fallback
-//            return new Rect(0, 0, windowManager.getDefaultDisplay().getWidth(), windowManager.getDefaultDisplay().getHeight());
-//        }
-//    }
-
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
@@ -157,13 +144,6 @@ public class OverlayService extends Service {
         }
         if (beeManager != null) {
             beeManager.removeAllBees();
-        }
-        if (interventionOverlay != null) {
-            try {
-                windowManager.removeView(interventionOverlay);
-            } catch (Exception e) {
-                // Ignore
-            }
         }
     }
 
