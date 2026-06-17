@@ -3,6 +3,7 @@ package com.example.screentests.frontend;
 import android.content.Intent;
 import android.os.Bundle;
 import android.widget.Button;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -35,6 +36,11 @@ public class SettingsActivity extends AppCompatActivity {
             startService(new Intent(SettingsActivity.this, OverlayService.class));
             // Force the engine to level 4 (Full Intervention)
             ProductivityEngine.getInstance().debugTriggerUI(4, true);
+        });
+
+        findViewById(R.id.resetCategorizationButton).setOnClickListener(v -> {
+            ProductivityEngine.getInstance().resetAllCategorizations();
+            Toast.makeText(this, "All categorizations have been reset", Toast.LENGTH_SHORT).show();
         });
     }
 }

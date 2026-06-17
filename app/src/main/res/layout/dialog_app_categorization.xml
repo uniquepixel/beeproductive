@@ -1,79 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:layout_gravity="center"
+    android:layout_margin="32dp"
+    app:cardBackgroundColor="@color/bee_soft_yellow"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="8dp">
 
-    <TextView
-        android:id="@+id/dialogTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="New App Detected"
-        android:textColor="@color/bee_dark"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/packageNameLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Package: com.example.app"
-        android:textColor="@color/bee_dark"
-        android:textSize="14sp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Is this app productive?"
-        android:textColor="@color/bee_dark"
-        android:textSize="16sp" />
-
-    <RadioGroup
-        android:id="@+id/statusRadioGroup"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp">
+        android:orientation="vertical"
+        android:padding="24dp">
 
-        <RadioButton
-            android:id="@+id/radioProductive"
+        <TextView
+            android:id="@+id/dialogTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Productive" />
+            android:text="New App Detected"
+            android:textColor="@color/white"
+            android:textSize="20sp"
+            android:textStyle="bold" />
 
-        <RadioButton
-            android:id="@+id/radioUnproductive"
+        <TextView
+            android:id="@+id/packageNameLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="Unproductive" />
-    </RadioGroup>
+            android:layout_marginTop="8dp"
+            android:text="Package: com.example.app"
+            android:textColor="@color/white"
+            android:textSize="14sp" />
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Severity (1-3):"
-        android:textColor="@color/bee_dark"
-        android:textSize="16sp" />
+        <TextView
+            android:id="@+id/questionLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Is this app productive?"
+            android:textColor="@color/white"
+            android:textSize="16sp" />
 
-    <SeekBar
-        android:id="@+id/severitySeekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:max="2"
-        android:progress="1" />
+        <RadioGroup
+            android:id="@+id/statusRadioGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
 
-    <Button
-        android:id="@+id/saveButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:backgroundTint="@color/bee_yellow"
-        android:text="Save Policy"
-        android:textColor="@color/bee_dark" />
+            <RadioButton
+                android:id="@+id/radioProductive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Productive"
+                android:textColor="@color/white" />
 
-</LinearLayout>
+            <RadioButton
+                android:id="@+id/radioUnproductive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Unproductive"
+                android:textColor="@color/white" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/severityLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Severity (1-3):"
+            android:textColor="@color/white"
+            android:textSize="16sp" />
+
+        <SeekBar
+            android:id="@+id/severitySeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:max="2"
+            android:progress="1" />
+
+        <Button
+            android:id="@+id/saveButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="@color/bee_yellow"
+            android:text="Save Policy"
+            android:textColor="@color/bee_dark" />
+
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

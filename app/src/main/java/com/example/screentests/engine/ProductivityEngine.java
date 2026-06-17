@@ -59,6 +59,12 @@ public class ProductivityEngine {
      */
     public void onAppChanged(String packageName) {
         if (applicationContext == null) return;
+
+        // Exception, wann nichts überprüft werden soll
+        if (packageName.contains("netlauncher") || packageName.contains("launcher") || packageName.equals("com.android.systemui")) {
+            postStateUpdate(packageName, false, false);
+            return;
+        }
         
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
@@ -203,6 +209,18 @@ public class ProductivityEngine {
         }
     }
 
+    public void resetAllCategorizations() {
+        dbExecutor.execute(() -> {
+            AppDatabase.getInstance(applicationContext).appPolicyDao().deleteAllPolicies();
+
+            // After clearing, we might want to re-check the current app
+            ProductivityState state = stateLiveData.getValue();
+            if (state != null && !state.getCurrentPackageName().isEmpty()) {
+                onAppChanged(state.getCurrentPackageName());
+            }
+        });
+    }
+
     /**
      * For debugging/testing the UI without modifying the internal score.
      */
@@ -234,6 +252,17 @@ public class ProductivityEngine {
                     postStateUpdate(packageName, state.isCheckRequiredForUnknownApp(), consent == 0);
                 }
             }
+        });
+    }
+
+    public void updateAppPolicy(String packageName, String status, int severity) {
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(applicationContext);
+            AppPolicy newPolicy = new AppPolicy(packageName, status, severity, 0L, 0);
+            db.appPolicyDao().insertPolicy(newPolicy);
+
+            // Refresh state immediately
+            onAppChanged(packageName);
         });
     }
 }

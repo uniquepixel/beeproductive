@@ -126,6 +126,39 @@
                 app:iconSize="18dp"
                 app:iconTint="@color/bee_yellow" />
 
+            <!-- Fancy Divider 3 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:layout_marginHorizontal="8dp"
+                android:layout_marginVertical="8dp"
+                android:alpha="0.3"
+                android:background="@drawable/divider_bee_line" />
+
+            <!-- Reset Categorization Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/resetCategorizationButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="16dp"
+                android:text="@string/reset_categorizations"
+                android:textAlignment="viewStart"
+                android:textColor="@color/bee_dark"
+                android:textSize="18sp"
+                app:icon="@drawable/ic_hexagon"
+                app:iconSize="18dp"
+                app:iconTint="@color/bee_yellow" />
+
+            <!-- Fancy Divider 4 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:layout_marginHorizontal="8dp"
+                android:layout_marginVertical="8dp"
+                android:alpha="0.3"
+                android:background="@drawable/divider_bee_line" />
+
             <!-- DEBUG SECTION -->
             <TextView
                 android:layout_width="wrap_content"

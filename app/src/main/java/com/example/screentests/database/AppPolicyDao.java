@@ -17,4 +17,7 @@ public interface AppPolicyDao {
 
     @Update
     void updatePolicy(AppPolicy appPolicy);
+
+    @Query("DELETE FROM app_policies")
+    void deleteAllPolicies();
 }
