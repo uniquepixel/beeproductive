@@ -5,3 +5,6 @@
 .gradle/nb-cache/app-527244599/project-info.ser
 build/reports/problems/problems-report.html
 /.gradle
+
+# Local config & secrets (must never be committed)
+local.properties

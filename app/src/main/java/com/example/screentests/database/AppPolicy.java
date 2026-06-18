@@ -18,14 +18,14 @@ public class AppPolicy {
 
     public long blockedUntilMillis;
 
-    // 0 = Unknown/Needs Ask, 1 = Granted, 2 = Denied
-    public int geminiConsent = 0;
+    // Consent for AI screenshot analysis. 0 = Unknown/Needs Ask, 1 = Granted, 2 = Denied
+    public int aiConsent = 0;
 
-    public AppPolicy(@NonNull String packageName, String status, int severity, long blockedUntilMillis, int geminiConsent) {
+    public AppPolicy(@NonNull String packageName, String status, int severity, long blockedUntilMillis, int aiConsent) {
         this.packageName = packageName;
         this.status = status;
         this.severity = severity;
         this.blockedUntilMillis = blockedUntilMillis;
-        this.geminiConsent = geminiConsent;
+        this.aiConsent = aiConsent;
     }
 }

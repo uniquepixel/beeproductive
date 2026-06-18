@@ -1,6 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
 }
+
+// Read the OpenRouter API key from local.properties (gitignored, not committed).
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val openRouterApiKey: String = localProps.getProperty("OPENROUTER_API_KEY", "")
 
 android {
     namespace = "com.example.screentests"
@@ -14,6 +23,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "OPENROUTER_API_KEY", "\"$openRouterApiKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -41,7 +56,7 @@ dependencies {
     implementation(libs.room.runtime)
     annotationProcessor(libs.room.compiler)
 
-    // Retrofit (for Gemini REST API)
+    // Retrofit (for the OpenRouter REST API)
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
 

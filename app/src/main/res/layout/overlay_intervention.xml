@@ -27,7 +27,7 @@
         android:layout_marginTop="16dp"
         android:layout_marginEnd="32dp"
         android:gravity="center"
-        android:text="You've been distracted for a while. Gemini is here to help you get back on track."
+        android:text="You've been distracted for a while. The Queen Bee is here to help you get back on track."
         android:textColor="@android:color/white"
         android:textSize="18sp"
         app:layout_constraintBottom_toTopOf="@+id/closeOverlayButton"

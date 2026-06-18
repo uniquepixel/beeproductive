@@ -8,7 +8,9 @@ import com.example.screentests.database.AppDatabase;
 import com.example.screentests.database.AppPolicy;
 import com.example.screentests.database.AppStatus;
 import com.example.screentests.database.ActivityLog;
-import com.example.screentests.network.GeminiClient;
+import com.example.screentests.network.OpenRouterClient;
+import com.example.screentests.chat.ChatSession;
+import com.example.screentests.chat.QueenBeeChatManager;
 import com.example.screentests.services.TrackerAccessibilityService;
 
 import java.util.concurrent.Executors;
@@ -28,6 +30,9 @@ public class ProductivityEngine {
     private Context applicationContext;
     private int currentScore = 0;
     private int minutesUnproductiveInCurrentSession = 0;
+    // Id of the Queen Bee chat session created when the score hits the max.
+    // Stays set until resetScore() so we don't spawn a new session every tick.
+    private String activeQueenSessionId = null;
     
     private static final int SCORE_MAX = 100;
     private static final int SCORE_MIN = 0;
@@ -47,6 +52,7 @@ public class ProductivityEngine {
 
     public void init(Context context) {
         this.applicationContext = context.getApplicationContext();
+        QueenBeeChatManager.getInstance().init(this.applicationContext);
     }
 
     // Frontend can observe this LiveData to get UI updates
@@ -79,15 +85,15 @@ public class ProductivityEngine {
             } else if (AppStatus.UNKNOWN.name().equals(policy.status)) {
                 isUnknown = true;
             } else if (AppStatus.BLOCKED.name().equals(policy.status) && System.currentTimeMillis() < policy.blockedUntilMillis) {
-                // If it is blocked via Gemini penalty, kick them out immediately
+                // If it is blocked via AI penalty, kick them out immediately
                 TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
                 if (tracker != null) {
                     tracker.enforceLockout();
                 }
             }
 
-            boolean needsGeminiConsent = (policy.geminiConsent == 0);
-            postStateUpdate(packageName, isUnknown, needsGeminiConsent);
+            boolean needsAiConsent = (policy.aiConsent == 0);
+            postStateUpdate(packageName, isUnknown, needsAiConsent);
         });
     }
 
@@ -122,22 +128,22 @@ public class ProductivityEngine {
             currentScore = Math.min(SCORE_MAX, currentScore + penalty);
             minutesUnproductiveInCurrentSession++;
             
-            // Check if we should take a screenshot to track activity for Gemini
+            // Check if we should take a screenshot to track activity for the AI
             if (minutesUnproductiveInCurrentSession % SCREENSHOT_INTERVAL_MINUTES == 0) {
-                if (policy.geminiConsent == 1) {
+                if (policy.aiConsent == 1) {
                     triggerBackgroundScreenshotAndAnalysis(packageName);
                 }
             }
-            
+
         } else if (AppStatus.PRODUCTIVE.name().equals(policy.status)) {
             // Cool down effect
             currentScore = Math.max(SCORE_MIN, currentScore - 15);
             minutesUnproductiveInCurrentSession = 0;
         }
 
-        boolean needsGeminiConsent = (policy != null && policy.geminiConsent == 0);
+        boolean needsAiConsent = (policy != null && policy.aiConsent == 0);
         // Post immediately to UI
-        postStateUpdate(packageName, false, needsGeminiConsent);
+        postStateUpdate(packageName, false, needsAiConsent);
     }
     
     private void triggerBackgroundScreenshotAndAnalysis(String packageName) {
@@ -146,18 +152,19 @@ public class ProductivityEngine {
             tracker.takeScreenshotBase64(new TrackerAccessibilityService.ScreenshotCallback() {
                 @Override
                 public void onSuccess(String base64Image) {
-                    GeminiClient.getInstance().analyzeScreenshot(base64Image, new GeminiClient.GeminiCallback() {
+                    OpenRouterClient.getInstance().analyzeScreenshot(base64Image, new OpenRouterClient.Callback() {
                         @Override
                         public void onSuccess(String textResponse) {
                             dbExecutor.execute(() -> {
-                                ActivityLog log = new ActivityLog(System.currentTimeMillis(), packageName, textResponse);
+                                // Persist both the AI summary and the screenshot itself.
+                                ActivityLog log = new ActivityLog(System.currentTimeMillis(), packageName, textResponse, base64Image);
                                 AppDatabase.getInstance(applicationContext).activityLogDao().insertLog(log);
                             });
                         }
-                        
+
                         @Override
                         public void onError(String error) {
-                            Log.e(TAG, "Gemini failed: " + error);
+                            Log.e(TAG, "OpenRouter analysis failed: " + error);
                         }
                     });
                 }
@@ -178,17 +185,27 @@ public class ProductivityEngine {
         }
     }
 
-    private void postStateUpdate(String packageName, boolean isUnknown, boolean needsGeminiConsent) {
+    private void postStateUpdate(String packageName, boolean isUnknown, boolean needsAiConsent) {
         int level = computeLevel(currentScore);
-        boolean showOverlay = currentScore >= SCORE_MAX;
-        
+        boolean atMax = currentScore >= SCORE_MAX;
+
+        // When the score hits the max, fire up the Queen Bee chat exactly once.
+        // The session stays alive until resetScore() so we don't respawn every tick.
+        if (atMax && activeQueenSessionId == null) {
+            ChatSession session = QueenBeeChatManager.getInstance().startSession(currentScore, null);
+            activeQueenSessionId = session.sessionId;
+            Log.d(TAG, "Queen Bee session started: " + activeQueenSessionId);
+        }
+
         ProductivityState newState = new ProductivityState(
-            currentScore, 
-            level, 
-            showOverlay, 
-            packageName, 
+            currentScore,
+            level,
+            atMax,              // showInterventionOverlay (existing behaviour)
+            packageName,
             isUnknown,
-            needsGeminiConsent
+            needsAiConsent,
+            atMax,              // showQueenBeeChat
+            activeQueenSessionId
         );
         stateLiveData.postValue(newState);
     }
@@ -203,9 +220,14 @@ public class ProductivityEngine {
 
     public void resetScore() {
         currentScore = 0;
+        // End the Queen Bee chat that was opened at max score, if any.
+        if (activeQueenSessionId != null) {
+            QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
+            activeQueenSessionId = null;
+        }
         ProductivityState state = stateLiveData.getValue();
         if (state != null) {
-            postStateUpdate(state.getCurrentPackageName(), state.isCheckRequiredForUnknownApp(), state.isGeminiConsentRequired());
+            postStateUpdate(state.getCurrentPackageName(), state.isCheckRequiredForUnknownApp(), state.isAiConsentRequired());
         }
     }
 
@@ -233,17 +255,19 @@ public class ProductivityEngine {
                 showIntervention,
                 pkg,
                 false,
-                false
+                false,
+                showIntervention,
+                activeQueenSessionId
         );
         stateLiveData.postValue(debugState);
     }
 
-    public void setGeminiConsent(String packageName, int consent) {
+    public void setAiConsent(String packageName, int consent) {
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
             AppPolicy policy = db.appPolicyDao().getPolicyForPackage(packageName);
             if (policy != null) {
-                policy.geminiConsent = consent;
+                policy.aiConsent = consent;
                 db.appPolicyDao().updatePolicy(policy);
                 
                 // If it is the current app, update state

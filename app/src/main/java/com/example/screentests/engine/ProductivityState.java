@@ -6,19 +6,25 @@ public class ProductivityState {
     private final boolean showInterventionOverlay;
     private final String currentPackageName;
     private final boolean checkRequiredForUnknownApp;
-    private final boolean geminiConsentRequired;
+    private final boolean aiConsentRequired;
+    private final boolean showQueenBeeChat;
+    private final String queenBeeSessionId;
 
-    public ProductivityState(int score, int level, boolean showInterventionOverlay, String currentPackageName, boolean checkRequiredForUnknownApp, boolean geminiConsentRequired) {
+    public ProductivityState(int score, int level, boolean showInterventionOverlay, String currentPackageName,
+                             boolean checkRequiredForUnknownApp, boolean aiConsentRequired,
+                             boolean showQueenBeeChat, String queenBeeSessionId) {
         this.score = score;
         this.level = level;
         this.showInterventionOverlay = showInterventionOverlay;
         this.currentPackageName = currentPackageName != null ? currentPackageName : "";
         this.checkRequiredForUnknownApp = checkRequiredForUnknownApp;
-        this.geminiConsentRequired = geminiConsentRequired;
+        this.aiConsentRequired = aiConsentRequired;
+        this.showQueenBeeChat = showQueenBeeChat;
+        this.queenBeeSessionId = queenBeeSessionId;
     }
 
     public static ProductivityState initial() {
-        return new ProductivityState(0, 0, false, "", false, false);
+        return new ProductivityState(0, 0, false, "", false, false, false, null);
     }
 
     public int getScore() {
@@ -41,11 +47,24 @@ public class ProductivityState {
         return checkRequiredForUnknownApp;
     }
 
-    public boolean isGeminiConsentRequired() {
-        return geminiConsentRequired;
+    public boolean isAiConsentRequired() {
+        return aiConsentRequired;
     }
 
-    public ProductivityState copyWith(int score, int level, boolean showOverlay, String packageName, boolean checkRequired, boolean geminiConsentRequired) {
-        return new ProductivityState(score, level, showOverlay, packageName, checkRequired, geminiConsentRequired);
+    /** True when the score hit the max and the Queen Bee chat should open. */
+    public boolean isShowQueenBeeChat() {
+        return showQueenBeeChat;
+    }
+
+    /** Id of the active Queen Bee session (null when no chat is active). */
+    public String getQueenBeeSessionId() {
+        return queenBeeSessionId;
+    }
+
+    public ProductivityState copyWith(int score, int level, boolean showOverlay, String packageName,
+                                      boolean checkRequired, boolean aiConsentRequired,
+                                      boolean showQueenBeeChat, String queenBeeSessionId) {
+        return new ProductivityState(score, level, showOverlay, packageName, checkRequired,
+                aiConsentRequired, showQueenBeeChat, queenBeeSessionId);
     }
 }

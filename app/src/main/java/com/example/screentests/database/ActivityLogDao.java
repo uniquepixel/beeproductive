@@ -15,6 +15,9 @@ public interface ActivityLogDao {
     @Query("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT :limit")
     List<ActivityLog> getRecentLogs(int limit);
 
+    @Query("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 1")
+    ActivityLog getLastLog();
+
     @Query("SELECT * FROM activity_logs WHERE timestamp >= :sinceMillis ORDER BY timestamp DESC")
     List<ActivityLog> getLogsSince(long sinceMillis);
 }
