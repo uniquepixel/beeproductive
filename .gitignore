@@ -1,10 +1,15 @@
-.gradle/8.13/checksums/checksums.lock
-.gradle/8.13/checksums/checksums.lock
-.gradle/8.13/checksums/sha1-checksums.bin
-.gradle/8.13/fileHashes/fileHashes.lock
-.gradle/nb-cache/app-527244599/project-info.ser
-build/reports/problems/problems-report.html
-/.gradle
+# Gradle / build output
+.gradle/
+build/
+
+# Android build artifacts
+*.apk
+*.ap_
+*.aab
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
 
 # Local config & secrets (must never be committed)
 local.properties
