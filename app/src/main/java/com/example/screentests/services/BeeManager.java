@@ -43,7 +43,7 @@ public class BeeManager {
     private static final int SCORE_MAX = 100;
     private static final int AMBIENT_SCORE = 20;   // at/below this: no bees (matches engine level 0)
     private static final int SLOSH_START = 35;     // above this: bees start dipping into view
-    private static final int ANGER_START = 40;     // above this: angriness ramps up
+    private static final int ANGER_START = 65;     // above this: angriness ramps up
     private static final int SWIPE_LAYER_SCORE = 70; // at/above this: swipe-to-disperse layer is live
     private static final int NEST_SCORE = 85;      // at/above this: swipes stir up the "nest"
     private static final int SWARM_EVENT_SCORE = 90; // brief all-in swarm event (below max)
@@ -136,7 +136,7 @@ public class BeeManager {
             while (isSimulationRunning) {
                 ProductivityState state = ProductivityEngine.getInstance().getState().getValue();
                 int score = state != null ? state.getScore() : 0;
-                boolean intervention = state != null && state.isShowInterventionOverlay();
+                boolean intervention = (state != null && state.isShowInterventionOverlay());
 
                 driveSwarm(score, intervention);
 
@@ -295,8 +295,8 @@ public class BeeManager {
     }
 
     /**
-     * Spawns toward / despawns toward the target count. Despawning bees are only marked here; they
-     * are not removed until they leave the screen (handled by reapOffScreenBees).
+     * Spawns/despawns toward target count. Despawning bees are only marked here,
+     * not removed until they leave the screen (handled by reapOffScreenBees).
      * Returns true if the bee list membership changed.
      */
     private boolean adjustPopulation(int targetCount, double centerX, double centerY,
@@ -307,7 +307,7 @@ public class BeeManager {
         synchronized (beesLock) {
             int active = bees.size() - despawning.size();
 
-            if (active < targetCount) {
+            if (active < targetCount) {//MORE BEES
                 int toSpawn = Math.min(spawnPerFrame, targetCount - active);
                 for (int i = 0; i < toSpawn; i++) {
                     SingleBee bee = new SingleBee(screenW, screenH, maxVisualOverhead);
@@ -378,15 +378,15 @@ public class BeeManager {
         double dx = bee.getPosition(dim.WIDTH) - centerX;
         double dy = bee.getPosition(dim.HEIGHT) - centerY;
         double len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 1) {
+        if (len < 1) {//to stop bees from getting stuck in the center
             double a = random.nextDouble() * Math.PI * 2;
             dx = Math.cos(a);
             dy = Math.sin(a);
             len = 1;
         }
-        double gx = centerX + (dx / len) * ringX * OFFSCREEN_GOAL_FACTOR / ORBIT_RADIUS_FACTOR;
-        double gy = centerY + (dy / len) * ringY * OFFSCREEN_GOAL_FACTOR / ORBIT_RADIUS_FACTOR;
-        bee.setGoal(gx, gy);
+        double gX = centerX + (dx / len) * ringX * OFFSCREEN_GOAL_FACTOR / ORBIT_RADIUS_FACTOR;
+        double gY = centerY + (dy / len) * ringY * OFFSCREEN_GOAL_FACTOR / ORBIT_RADIUS_FACTOR;
+        bee.setGoal(gX, gY);
     }
 
     private void updateBeeVisuals(SingleBee bee) {

@@ -32,7 +32,7 @@ public class SingleBee {
     // Base tuning constants.
     private static final double BASE_MAX_SPEED = 15.0;
     private static final double GOAL_WEIGHT = 0.01;   // same additive form as cohesion, steers toward the goal
-    private static final double JITTER_STRENGTH = 6.0; // max chaotic wobble at full angriness
+    private static final double JITTER_STRENGTH = 3.0; // max chaotic wobble at full angriness, just a value
 
     public SingleBee(int x, int y, int maxVisualOverhead) {
         this.maxX = x;
