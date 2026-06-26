@@ -23,14 +23,6 @@ public class SettingsActivity extends AppCompatActivity {
         Button backButton = findViewById(R.id.backButton);
         backButton.setOnClickListener(v -> finish());
 
-        // Debug buttons to test the swarm and intervention
-        findViewById(R.id.debugTriggerOverlayButton).setOnClickListener(v -> {
-            // Start the OverlayService if not already running
-            startService(new Intent(SettingsActivity.this, OverlayService.class));
-            // Force the engine to level 3 (Swarm)
-            ProductivityEngine.getInstance().debugTriggerUI(3, false);
-        });
-
         findViewById(R.id.debugTriggerInterventionButton).setOnClickListener(v -> {
             // Start the OverlayService if not already running
             startService(new Intent(SettingsActivity.this, OverlayService.class));

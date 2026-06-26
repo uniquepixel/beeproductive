@@ -169,16 +169,6 @@
                 android:textStyle="bold" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/debugTriggerOverlayButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Show Swarm (Debug)"
-                android:textColor="#D32F2F"
-                app:strokeColor="#D32F2F" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/debugTriggerInterventionButton"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="match_parent"
