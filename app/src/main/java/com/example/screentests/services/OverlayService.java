@@ -5,15 +5,25 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.PixelFormat;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
-import android.widget.RadioButton;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -23,6 +33,9 @@ import androidx.core.app.NotificationCompat;
 import androidx.lifecycle.Observer;
 
 import com.example.screentests.R;
+import com.example.screentests.chat.ChatSession;
+import com.example.screentests.chat.QueenBeeChatManager;
+import com.example.screentests.database.ActivityLog;
 import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
 
@@ -40,12 +53,16 @@ public class OverlayService extends Service {
     private String lastCategorizationPackage = "";
     private boolean isObserverRegistered = false;
     private BeeManager beeManager;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    public enum QueenMood {
+        THINKING, EXCLAIMING, TALKING, ASKING
+    }
 
     private final Observer<ProductivityState> stateObserver = state -> {
         Log.d(TAG, "Received state update: score=" + state.getScore() + ", level=" + state.getLevel() + ", showIntervention=" + state.isShowInterventionOverlay());
-        // FIX: Pass the actual level from state
         updateBees(state.getLevel());
-        updateIntervention(state.isShowInterventionOverlay());
+        updateIntervention(state.isShowInterventionOverlay(), state.getQueenBeeSessionId());
         updateCategorizationOverlay(state.isCheckRequiredForUnknownApp(), state.getCurrentPackageName());
     };
 
@@ -79,6 +96,12 @@ public class OverlayService extends Service {
         return START_STICKY;
     }
 
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
     private void updateBees(int level) {
         if (level == lastLevel) return;
         Log.d(TAG, "Updating bees for level: " + level);
@@ -93,22 +116,92 @@ public class OverlayService extends Service {
         lastLevel = level;
     }
 
-    private void updateIntervention(boolean show) {
+    private void updateIntervention(boolean show, String sessionId) {
         if (show == isInterventionShowing) return;
         Log.d(TAG, "Updating intervention show: " + show);
 
         if (show) {
-            interventionOverlay = LayoutInflater.from(this).inflate(R.layout.overlay_intervention, null);
+            // Apply Material theme to the service context for proper inflation of Material Components
+            ContextThemeWrapper wrapper = new ContextThemeWrapper(this, R.style.Theme_Screentests);
+            interventionOverlay = LayoutInflater.from(wrapper).inflate(R.layout.overlay_intervention, null);
+            
+            // Layout params for an overlay that needs keyboard input
             WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, // Removed NOT_TOUCH_MODAL to ensure input works better
                     PixelFormat.TRANSLUCENT);
+            
+            // Adjust soft input mode to push content up
+            params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
 
-            interventionOverlay.findViewById(R.id.closeOverlayButton).setOnClickListener(v -> {
-                Log.d(TAG, "Overlay close button clicked");
-                ProductivityEngine.getInstance().resetScore();
+            // Initialize UI components
+            ImageView screenshotView = interventionOverlay.findViewById(R.id.lastActivityScreenshot);
+            TextView chatDisplay = interventionOverlay.findViewById(R.id.chatMessageDisplay);
+            EditText chatInput = interventionOverlay.findViewById(R.id.chatEditText);
+            ImageButton sendButton = interventionOverlay.findViewById(R.id.sendButton);
+            ImageView queenIcon = interventionOverlay.findViewById(R.id.queenBeeIcon);
+
+            // Load last screenshot
+            QueenBeeChatManager.getInstance().getLastScreenshot(log -> {
+                if (log != null && log.screenshotBase64 != null) {
+                    try {
+                        byte[] decodedString = Base64.decode(log.screenshotBase64, Base64.DEFAULT);
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                        mainHandler.post(() -> screenshotView.setImageBitmap(bitmap));
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to decode screenshot", e);
+                    }
+                }
+            });
+
+            // If we have an existing session, restore its last message
+            if (sessionId != null) {
+                ChatSession session = QueenBeeChatManager.getInstance().getSession(sessionId);
+                if (session != null && !session.getHistory().isEmpty()) {
+                    chatDisplay.setText(session.getHistory().get(session.getHistory().size() - 1).text);
+                }
+            }
+
+            // Send logic
+            Runnable sendAction = () -> {
+                String text = chatInput.getText().toString().trim();
+                if (!text.isEmpty() && sessionId != null) {
+                    // Show user reply immediately while Queen is "thinking"
+                    chatDisplay.setText(text);
+                    chatInput.setText("");
+                    setQueenMood(queenIcon, QueenMood.THINKING);
+
+                    QueenBeeChatManager.getInstance().sendMessage(sessionId, text, new QueenBeeChatManager.ChatCallback() {
+                        @Override
+                        public void onReply(String assistantText) {
+                            mainHandler.post(() -> {
+                                chatDisplay.setText(assistantText);
+                                setQueenMood(queenIcon, QueenMood.TALKING);
+                            });
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            Log.e(TAG, "Chat error: " + error);
+                            mainHandler.post(() -> {
+                                chatDisplay.setText("The Queen is speechless: " + error);
+                                setQueenMood(queenIcon, QueenMood.ASKING);
+                            });
+                        }
+                    });
+                }
+            };
+
+            sendButton.setOnClickListener(v -> sendAction.run());
+            chatInput.setOnEditorActionListener((v, actionId, event) -> {
+                if (actionId == EditorInfo.IME_ACTION_SEND || 
+                   (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    sendAction.run();
+                    return true;
+                }
+                return false;
             });
 
             try {
@@ -130,6 +223,27 @@ public class OverlayService extends Service {
         }
     }
 
+    private void setQueenMood(ImageView icon, QueenMood mood) {
+        if (icon == null) return;
+        int resId;
+        switch (mood) {
+            case THINKING:
+                resId = android.R.drawable.stat_notify_chat;
+                break;
+            case EXCLAIMING:
+                resId = android.R.drawable.ic_dialog_alert;
+                break;
+            case ASKING:
+                resId = android.R.drawable.ic_menu_help;
+                break;
+            case TALKING:
+            default:
+                resId = android.R.drawable.ic_dialog_info;
+                break;
+        }
+        icon.setImageResource(resId);
+    }
+
     private void updateCategorizationOverlay(boolean show, String packageName) {
         if (show == isCategorizationShowing && packageName.equals(lastCategorizationPackage)) return;
         Log.d(TAG, "Updating categorization overlay: show=" + show + ", pkg=" + packageName);
@@ -145,7 +259,8 @@ public class OverlayService extends Service {
         }
 
         if (show) {
-            categorizationOverlay = LayoutInflater.from(this).inflate(R.layout.dialog_app_categorization, null);
+            ContextThemeWrapper wrapper = new ContextThemeWrapper(this, R.style.Theme_Screentests);
+            categorizationOverlay = LayoutInflater.from(wrapper).inflate(R.layout.dialog_app_categorization, null);
             
             // Background to dim the underlying app
             categorizationOverlay.setBackgroundColor(0xAA000000);
@@ -203,15 +318,7 @@ public class OverlayService extends Service {
         super.onDestroy();
         if (isObserverRegistered) {
             ProductivityEngine.getInstance().getState().removeObserver(stateObserver);
+            isObserverRegistered = false;
         }
-        if (beeManager != null) {
-            beeManager.removeAllBees();
-        }
-    }
-
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 }
