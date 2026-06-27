@@ -9,12 +9,17 @@ How the 0–100 productivity score is computed and how any frontend component ca
 The score lives entirely inside `ProductivityEngine` (a singleton). Frontend components never read or write the score directly — they observe a `LiveData<ProductivityState>` that the engine publishes whenever something changes.
 
 ```
-AccessibilityService          ProductivityEngine             Frontend
-  onAppChanged()  ─────────►  tickScoreLogic() every 1 min  ──► LiveData<ProductivityState>
-                               postStateUpdate()                     │
-                                                                      ├── MainActivity.observe()
-                                                                      └── OverlayService.observeForever()
+AccessibilityService          ProductivityEngine                       Frontend
+  onAppChanged()  ─────────►  tickScoreLogic() every score interval  ──► LiveData<ProductivityState>
+                               postStateUpdate()    (default 1 min)         │
+                                                                            ├── MainActivity.observe()
+                                                                            └── OverlayService.observeForever()
 ```
+
+> The tick interval is **configurable** — see
+> [docs/INTERVAL_AND_CATEGORY_INTEGRATION.md](docs/INTERVAL_AND_CATEGORY_INTEGRATION.md)
+> for the score-speed slider (`getScoreIntervalMillis()` / `setScoreIntervalMillis(long)`)
+> and the NEUTRAL ("not an app") category.
 
 ---
 
@@ -45,15 +50,21 @@ AccessibilityService          ProductivityEngine             Frontend
 
 ## How the score changes
 
-`tickScoreLogic()` runs every minute in a background thread.
+`tickScoreLogic()` runs every score interval (default 1 min, configurable via
+`setScoreIntervalMillis`) in a background thread. The "per minute" amounts below are
+really "per tick".
 
 | Situation | Score change |
 |---|---|
-| Using an **unproductive** app, severity 1 | +5 per minute |
-| Using an **unproductive** app, severity 2 | +10 per minute |
-| Using an **unproductive** app, severity 3 | +20 per minute |
-| Using a **productive** app | −15 per minute (cooldown) |
-| App is **unknown** or **blocked** | no change |
+| Using an **unproductive** app, severity 1 | +5 per tick |
+| Using an **unproductive** app, severity 2 | +10 per tick |
+| Using an **unproductive** app, severity 3 | +20 per tick |
+| Using a **productive** app | −15 per tick (cooldown) |
+| App is **unknown**, **blocked**, or **neutral** | no change |
+
+**NEUTRAL** ("not an app") is for packages that are neither productive nor unproductive
+(keyboards, launchers, SystemUI). They never move the score and never prompt the user. See
+[docs/INTERVAL_AND_CATEGORY_INTEGRATION.md](docs/INTERVAL_AND_CATEGORY_INTEGRATION.md).
 
 Score is clamped to `[0, 100]`. When it hits 100, `isShowInterventionOverlay()` becomes `true`. The user closes the overlay by clicking the button, which calls `ProductivityEngine.getInstance().resetScore()` and resets to 0.
 

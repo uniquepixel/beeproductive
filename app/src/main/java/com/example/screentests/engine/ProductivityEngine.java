@@ -15,6 +15,7 @@ import com.example.screentests.services.TrackerAccessibilityService;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class ProductivityEngine {
@@ -38,9 +39,19 @@ public class ProductivityEngine {
     private static final int SCORE_MIN = 0;
     private static final int SCREENSHOT_INTERVAL_MINUTES = 2;
 
+    // Configurable interval between score ticks. Persisted so a demo slider survives restarts.
+    private static final String PREFS_NAME = "beeproductive_prefs";
+    private static final String KEY_SCORE_INTERVAL_MS = "score_interval_ms";
+    private static final long DEFAULT_SCORE_INTERVAL_MS = 60_000L; // 1 minute
+    private static final long MIN_SCORE_INTERVAL_MS = 1_000L;      // floor to avoid pathological values
+
+    private volatile long scoreIntervalMillis = DEFAULT_SCORE_INTERVAL_MS;
+    private ScheduledFuture<?> tickFuture;
+
     private ProductivityEngine() {
-        // Run the logic tick every minute
-        scheduler.scheduleAtFixedRate(this::tickScoreLogic, 1, 1, TimeUnit.MINUTES);
+        // Arm the score ticker at the default interval. init() re-arms it once the
+        // persisted interval is available.
+        scheduleTick();
     }
 
     public static synchronized ProductivityEngine getInstance() {
@@ -53,6 +64,48 @@ public class ProductivityEngine {
     public void init(Context context) {
         this.applicationContext = context.getApplicationContext();
         QueenBeeChatManager.getInstance().init(this.applicationContext);
+
+        // Restore the persisted score interval and re-arm the ticker at that rate.
+        scoreIntervalMillis = applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getLong(KEY_SCORE_INTERVAL_MS, DEFAULT_SCORE_INTERVAL_MS);
+        scheduleTick();
+    }
+
+    /**
+     * (Re)schedules the background score ticker at the current {@link #scoreIntervalMillis}.
+     * Safe to call repeatedly — any existing schedule is cancelled first.
+     */
+    private synchronized void scheduleTick() {
+        if (tickFuture != null) {
+            tickFuture.cancel(false); // don't interrupt an in-flight tick
+        }
+        tickFuture = scheduler.scheduleAtFixedRate(
+                this::tickScoreLogic, scoreIntervalMillis, scoreIntervalMillis, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Current interval (in milliseconds) between score ticks. Default is 60000 (1 minute).
+     */
+    public long getScoreIntervalMillis() {
+        return scoreIntervalMillis;
+    }
+
+    /**
+     * Sets the interval between score ticks. A shorter interval makes the score build up faster
+     * (handy for demos). Values are clamped to a minimum of {@value #MIN_SCORE_INTERVAL_MS} ms,
+     * persisted across restarts, and applied immediately.
+     */
+    public void setScoreIntervalMillis(long millis) {
+        scoreIntervalMillis = Math.max(MIN_SCORE_INTERVAL_MS, millis);
+        if (applicationContext != null) {
+            applicationContext
+                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putLong(KEY_SCORE_INTERVAL_MS, scoreIntervalMillis)
+                    .apply();
+        }
+        scheduleTick();
     }
 
     // Frontend can observe this LiveData to get UI updates
@@ -66,24 +119,17 @@ public class ProductivityEngine {
     public void onAppChanged(String packageName) {
         if (applicationContext == null) return;
 
-        // Exception, wann nichts überprüft werden soll
-        if (packageName.contains("netlauncher") || packageName.contains("launcher") || packageName.equals("com.android.systemui")) {
-            postStateUpdate(packageName, false, false);
-            return;
-        }
-        
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
             AppPolicy policy = db.appPolicyDao().getPolicyForPackage(packageName);
-            
-            boolean isUnknown = false;
-            
+
             if (policy == null) {
-                policy = new AppPolicy(packageName, AppStatus.UNKNOWN.name(), 1, 0, 0);
+                // Unseen package. System non-apps (launcher, keyboard, SystemUI) are auto-classified
+                // as NEUTRAL so they're consistent and visible in the DB; everything else starts UNKNOWN.
+                String initialStatus = isSystemNonApp(packageName)
+                        ? AppStatus.NEUTRAL.name() : AppStatus.UNKNOWN.name();
+                policy = new AppPolicy(packageName, initialStatus, 1, 0, 0);
                 db.appPolicyDao().insertPolicy(policy);
-                isUnknown = true;
-            } else if (AppStatus.UNKNOWN.name().equals(policy.status)) {
-                isUnknown = true;
             } else if (AppStatus.BLOCKED.name().equals(policy.status) && System.currentTimeMillis() < policy.blockedUntilMillis) {
                 // If it is blocked via AI penalty, kick them out immediately
                 TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
@@ -92,9 +138,22 @@ public class ProductivityEngine {
                 }
             }
 
-            boolean needsAiConsent = (policy.aiConsent == 0);
+            boolean isUnknown = AppStatus.UNKNOWN.name().equals(policy.status);
+            boolean isNeutral = AppStatus.NEUTRAL.name().equals(policy.status);
+            // Neutral apps are "not an app" — never prompt for categorization or AI consent.
+            boolean needsAiConsent = !isNeutral && policy.aiConsent == 0;
             postStateUpdate(packageName, isUnknown, needsAiConsent);
         });
+    }
+
+    /**
+     * Packages that aren't really "apps" the user chooses to use — launchers, the keyboard,
+     * the system UI. These are auto-classified as {@link AppStatus#NEUTRAL}.
+     */
+    private boolean isSystemNonApp(String packageName) {
+        return packageName.contains("netlauncher")
+                || packageName.contains("launcher")
+                || packageName.equals("com.android.systemui");
     }
 
     /**
@@ -111,7 +170,11 @@ public class ProductivityEngine {
         AppDatabase db = AppDatabase.getInstance(applicationContext);
         AppPolicy policy = db.appPolicyDao().getPolicyForPackage(packageName);
         
-        if (policy == null || AppStatus.UNKNOWN.name().equals(policy.status)) {
+        if (policy == null
+                || AppStatus.UNKNOWN.name().equals(policy.status)
+                || AppStatus.NEUTRAL.name().equals(policy.status)) {
+            // Unknown apps await categorization; neutral apps are "not an app".
+            // Neither moves the score or takes screenshots.
             minutesUnproductiveInCurrentSession = 0;
             return;
         }
@@ -288,5 +351,13 @@ public class ProductivityEngine {
             // Refresh state immediately
             onAppChanged(packageName);
         });
+    }
+
+    /**
+     * Marks an app as "not an app" ({@link AppStatus#NEUTRAL}) — it will never affect the score
+     * and will never prompt for categorization or AI consent.
+     */
+    public void setAppNeutral(String packageName) {
+        updateAppPolicy(packageName, AppStatus.NEUTRAL.name(), 0);
     }
 }
