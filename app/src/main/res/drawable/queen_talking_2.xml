@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLACEHOLDER ART. Queen Bee mood: TALKING (frame 2). Replace with the real image. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <path android:strokeColor="@color/bee_dark" android:strokeWidth="2.5" android:pathData="M40,20 L33,7" />
+    <path android:strokeColor="@color/bee_dark" android:strokeWidth="2.5" android:pathData="M60,20 L67,7" />
+    <path android:fillColor="#FFD700" android:strokeColor="@color/bee_dark" android:strokeWidth="2.5"
+        android:pathData="M12,51 a38,35 0 1,0 76,0 a38,35 0 1,0 -76,0 Z" />
+    <path android:fillColor="@color/bee_dark" android:pathData="M34,46 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <path android:fillColor="@color/bee_dark" android:pathData="M58,46 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <!-- wide open mouth -->
+    <path android:fillColor="@color/bee_dark" android:pathData="M40,63 a10,7 0 1,0 20,0 a10,7 0 1,0 -20,0 Z" />
+    <path android:fillColor="#FFA726" android:pathData="M78,16 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z" />
+</vector>

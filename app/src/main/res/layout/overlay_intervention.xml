@@ -153,13 +153,14 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- Queen Bee mood image; OverlayService swaps this per QueenBeeUiState.mood. -->
     <ImageView
         android:id="@+id/queenBeeIcon"
         android:layout_width="140dp"
         android:layout_height="140dp"
         android:layout_marginEnd="24dp"
         android:layout_marginBottom="24dp"
-        android:src="@drawable/ic_launcher_foreground"
+        android:src="@drawable/queen_thinking"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 

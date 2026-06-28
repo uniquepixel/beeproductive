@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLACEHOLDER ART. Queen Bee mood: SHOWING HONEY LEVEL. Replace with the real image. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <path android:strokeColor="@color/bee_dark" android:strokeWidth="2.5" android:pathData="M40,20 L33,7" />
+    <path android:strokeColor="@color/bee_dark" android:strokeWidth="2.5" android:pathData="M60,20 L67,7" />
+    <path android:fillColor="#FFD700" android:strokeColor="@color/bee_dark" android:strokeWidth="2.5"
+        android:pathData="M12,51 a38,35 0 1,0 76,0 a38,35 0 1,0 -76,0 Z" />
+    <path android:fillColor="@color/bee_dark" android:pathData="M34,46 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <path android:fillColor="@color/bee_dark" android:pathData="M58,46 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
+    <!-- neutral mouth -->
+    <path android:strokeColor="@color/bee_dark" android:strokeWidth="3" android:fillColor="#00000000"
+        android:pathData="M40,64 Q50,69 60,64" />
+    <!-- honey drop accent -->
+    <path android:fillColor="#FFC107" android:pathData="M86,10 q7,12 0,16 q-7,-4 0,-16 Z" />
+</vector>

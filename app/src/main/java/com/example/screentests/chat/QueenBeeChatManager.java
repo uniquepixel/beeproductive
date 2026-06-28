@@ -3,16 +3,25 @@ package com.example.screentests.chat;
 import android.content.Context;
 import android.util.Log;
 
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MutableLiveData;
+
 import com.example.screentests.database.ActivityLog;
 import com.example.screentests.database.AppDatabase;
 import com.example.screentests.network.ChatRequest;
 import com.example.screentests.network.OpenRouterClient;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Public entry point for the Queen Bee chat. The frontend only needs this
@@ -32,11 +41,32 @@ public class QueenBeeChatManager {
 
     private static QueenBeeChatManager instance;
 
+    /** Hard limit: the Queen must decide within this long of the session opening. */
+    private static final long DECISION_TIMEOUT_MS = 2 * 60 * 1000L;
+    /** The Queen ends a reply with this token once she has decided; we parse it then strip it. */
+    private static final Pattern DECISION_PATTERN =
+            Pattern.compile("\\[\\s*DECISION\\s*:\\s*(REFILL|KICK)\\s*\\]", Pattern.CASE_INSENSITIVE);
+
     private Context appContext;
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService timeoutExecutor = Executors.newSingleThreadScheduledExecutor();
     private final ConcurrentHashMap<String, ChatSession> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ScheduledFuture<?>> timeouts = new ConcurrentHashMap<>();
+    private final Set<String> decidedSessions = ConcurrentHashMap.newKeySet();
+
+    /**
+     * The single source of truth for the chat UI (last line + Queen mood + decision). The overlay
+     * observes this; the backend can later post to it on the same basis. See
+     * docs/QUEENBEE_UI_STATE_INTEGRATION.md.
+     */
+    private final MutableLiveData<QueenBeeUiState> uiState = new MutableLiveData<>(QueenBeeUiState.idle());
 
     private QueenBeeChatManager() {}
+
+    /** Observe this to render the Queen Bee chat UI (mirrors ProductivityEngine.getState()). */
+    public LiveData<QueenBeeUiState> getUiState() {
+        return uiState;
+    }
 
     public static synchronized QueenBeeChatManager getInstance() {
         if (instance == null) {
@@ -88,6 +118,10 @@ public class QueenBeeChatManager {
                 buildSystemPrompt(currentScore, null));
         sessions.put(sessionId, session);
 
+        // The Queen is composing her opening line; start the hard decision clock.
+        postUi(QueenMood.THINKING, true, QueenBeeUiState.Speaker.QUEEN, "", QueenBeeUiState.Decision.NONE);
+        scheduleDecisionTimeout(sessionId);
+
         dbExecutor.execute(() -> {
             // Enrich the system prompt with recent screen metadata, off the main thread.
             List<ActivityLog> recent = null;
@@ -110,12 +144,13 @@ public class QueenBeeChatManager {
             OpenRouterClient.getInstance().chat(request, new OpenRouterClient.Callback() {
                 @Override
                 public void onSuccess(String textResponse) {
-                    session.addAssistant(textResponse);
-                    if (cb != null) cb.onReady(session, textResponse);
+                    String shown = handleQueenReply(sessionId, session, textResponse);
+                    if (cb != null) cb.onReady(session, shown);
                 }
 
                 @Override
                 public void onError(String error) {
+                    handleQueenError(error);
                     if (cb != null) cb.onError(error);
                 }
             });
@@ -135,18 +170,87 @@ public class QueenBeeChatManager {
         }
 
         session.addUser(userText);
+        // Show the user's line in the big box right away while the Queen thinks.
+        postUi(QueenMood.THINKING, true, QueenBeeUiState.Speaker.USER, userText, QueenBeeUiState.Decision.NONE);
+
         OpenRouterClient.getInstance().chat(session.snapshotMessages(), new OpenRouterClient.Callback() {
             @Override
             public void onSuccess(String textResponse) {
-                session.addAssistant(textResponse);
-                if (cb != null) cb.onReply(textResponse);
+                String shown = handleQueenReply(sessionId, session, textResponse);
+                if (cb != null) cb.onReply(shown);
             }
 
             @Override
             public void onError(String error) {
+                handleQueenError(error);
                 if (cb != null) cb.onError(error);
             }
         });
+    }
+
+    // ------------------------------------------------------------------
+    // UI-state broadcasting + decision handling
+    // ------------------------------------------------------------------
+
+    /**
+     * Records the Queen's reply, parses & strips any hidden decision token, and broadcasts the
+     * new UI state. Returns the text that should actually be shown (token removed).
+     */
+    private String handleQueenReply(String sessionId, ChatSession session, String rawText) {
+        String text = rawText != null ? rawText : "";
+        QueenBeeUiState.Decision decision = QueenBeeUiState.Decision.NONE;
+
+        Matcher m = DECISION_PATTERN.matcher(text);
+        if (m.find()) {
+            decision = "REFILL".equalsIgnoreCase(m.group(1))
+                    ? QueenBeeUiState.Decision.REFILL : QueenBeeUiState.Decision.KICK;
+            text = m.replaceAll("").trim();
+        }
+        if (text.isEmpty()) text = "..."; // never leave the box blank
+        session.addAssistant(text);
+
+        // Only honour the first decision for a session; ignore any later/duplicate token.
+        if (decision != QueenBeeUiState.Decision.NONE) {
+            if (decidedSessions.add(sessionId)) {
+                cancelDecisionTimeout(sessionId);
+            } else {
+                decision = QueenBeeUiState.Decision.NONE;
+            }
+        }
+
+        QueenMood mood = decision == QueenBeeUiState.Decision.REFILL ? QueenMood.HAPPY
+                : decision == QueenBeeUiState.Decision.KICK ? QueenMood.EXCLAIMING
+                : QueenMood.TALKING_1;
+        postUi(mood, false, QueenBeeUiState.Speaker.QUEEN, text, decision);
+        return text;
+    }
+
+    private void handleQueenError(String error) {
+        postUi(QueenMood.ASKING, false, QueenBeeUiState.Speaker.QUEEN,
+                "The Queen is speechless: " + error, QueenBeeUiState.Decision.NONE);
+    }
+
+    private void postUi(QueenMood mood, boolean thinking, QueenBeeUiState.Speaker speaker,
+                        String text, QueenBeeUiState.Decision decision) {
+        uiState.postValue(new QueenBeeUiState(mood, thinking, speaker, text, decision));
+    }
+
+    /** Arms the hard 2-minute clock; on expiry with no decision the user is kicked out (fallback). */
+    private void scheduleDecisionTimeout(String sessionId) {
+        ScheduledFuture<?> f = timeoutExecutor.schedule(() -> {
+            if (decidedSessions.add(sessionId)) {
+                postUi(QueenMood.EXCLAIMING, false, QueenBeeUiState.Speaker.QUEEN,
+                        "Time's up. Back to work — the hive has no more patience.",
+                        QueenBeeUiState.Decision.KICK);
+            }
+            timeouts.remove(sessionId);
+        }, DECISION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        timeouts.put(sessionId, f);
+    }
+
+    private void cancelDecisionTimeout(String sessionId) {
+        ScheduledFuture<?> f = timeouts.remove(sessionId);
+        if (f != null) f.cancel(false);
     }
 
     public ChatSession getSession(String sessionId) {
@@ -163,7 +267,11 @@ public class QueenBeeChatManager {
     public void endSession(String sessionId) {
         if (sessionId != null) {
             sessions.remove(sessionId);
+            cancelDecisionTimeout(sessionId);
+            decidedSessions.remove(sessionId);
         }
+        // Reset the UI channel so a future session starts clean.
+        uiState.postValue(QueenBeeUiState.idle());
     }
 
     // ------------------------------------------------------------------
@@ -215,14 +323,15 @@ public class QueenBeeChatManager {
             sb.append("(No recent screen summaries are available.)\n\n");
         }
 
-        // TODO: Define the "convince" / win criteria. The user's goal is to
-        // persuade the Queen Bee that it is okay that they were unproductive.
-        // Once the rules are decided, describe here when the Queen should
-        // concede, and any condition the manager can detect to end the session
-        // as "won". Until then she simply debates and never formally concedes.
         sb.append("The user will try to convince you that it is okay that they were unproductive. ")
           .append("Engage with their arguments and push back thoughtfully. ")
-          .append("Keep each reply to a few sentences.");
+          .append("Keep each reply to a few sentences.\n\n")
+          .append("You must eventually reach a verdict. The instant you are genuinely convinced and ")
+          .append("decide to refill their honey, end that reply with the exact token ")
+          .append("[DECISION: REFILL]. If they are dismissive, or you decide they truly must stop now, ")
+          .append("end that reply with the exact token [DECISION: KICK]. Emit a token ONLY once you ")
+          .append("have actually decided, and never mention or explain the token in your prose — it is ")
+          .append("a hidden control signal that ends the conversation.");
 
         return sb.toString();
     }

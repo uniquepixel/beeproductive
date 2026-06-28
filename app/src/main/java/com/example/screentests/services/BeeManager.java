@@ -60,6 +60,13 @@ public class BeeManager {
     private static final long NEST_BOOST_MS = 2500;
     private static final double SWIPE_IMPULSE = 45.0;
 
+    // Edge fade: a bee becomes fully transparent within this fraction of the smaller screen side.
+    private static final double EDGE_FADE_FRACTION = 0.15;
+    // Shake/swipe flee: bees rush to the edge and linger there. Linger is long at low score,
+    // short when the unproductivity is severe.
+    private static final long FLEE_LINGER_MAX_MS = 5000;
+    private static final long FLEE_LINGER_MIN_MS = 1000;
+
     private static final int FRAME_MS = 32; // ~30 FPS
 
     private final Context context;
@@ -99,9 +106,22 @@ public class BeeManager {
     // Written from the swipe callback (main thread), read by the sim loop -> volatile for safe publication.
     private volatile long nestBoostEndTime = 0;
 
+    // --- Shake/swipe flee state (written from gesture callbacks, read by the sim loop) ---
+    private volatile long fleeEndTime = 0;
+    private volatile boolean fleeRadial = false; // true: scatter radially (shake); false: along fleeDir (swipe)
+    private volatile double fleeDirX = 0;
+    private volatile double fleeDirY = 0;
+    private ShakeDetector shakeDetector;
+
+    // --- Honey-bottle side indicator (briefly flashed when the honey band drops as the score rises) ---
+    private int lastHoneyBand = 0;     // 0 none, 1 full, 2 medium, 3 low (only touched on the sim thread)
+    private View honeyBottleView = null; // only touched on the main thread
+
     public BeeManager(Context context, WindowManager windowManager, int score) {
         this.context = context;
         this.windowManager = windowManager;
+        // Shake scatters the swarm at any stage where bees exist (no manifest permission needed).
+        this.shakeDetector = new ShakeDetector(context, this::onShake);
     }
 
     public int getWindowSize(dim dimension) {
@@ -131,6 +151,9 @@ public class BeeManager {
         screenW = Math.max(1, getWindowSize(dim.WIDTH));
         screenH = Math.max(1, getWindowSize(dim.HEIGHT));
 
+        // Listen for shakes while the swarm is alive.
+        if (shakeDetector != null) shakeDetector.start();
+
         new Thread(() -> {
             Log.d(TAG, "Simulation started");
             while (isSimulationRunning) {
@@ -140,15 +163,20 @@ public class BeeManager {
 
                 driveSwarm(score, intervention);
 
-                // Physics + render on a stable snapshot; each bee uses its own neighbour copy.
+                // Physics on a stable snapshot, then ONE batched UI post for the whole frame
+                // (was one main-thread post per bee per frame -> the old swipe/shake lag source).
                 List<SingleBee> snapshot;
                 synchronized (beesLock) {
                     snapshot = new ArrayList<>(bees);
                 }
+                List<BeeFrame> frames = new ArrayList<>(snapshot.size());
                 for (SingleBee bee : snapshot) {
                     bee.timeStep();
-                    updateBeeVisuals(bee);
+                    int bx = bee.getPosition(dim.WIDTH);
+                    int by = bee.getPosition(dim.HEIGHT);
+                    frames.add(new BeeFrame(bee, bx, by, clampedEdgeAlpha(bx, by)));
                 }
+                renderBeeFrames(frames);
 
                 reapOffScreenBees(snapshot);
 
@@ -172,6 +200,7 @@ public class BeeManager {
                 }
             }
             isSimulationRunning = false;
+            if (shakeDetector != null) shakeDetector.stop();
             Log.d(TAG, "Simulation stopped");
         }).start();
     }
@@ -247,17 +276,23 @@ public class BeeManager {
         boolean structureChanged = adjustPopulation(targetCount, centerX, centerY, ringX, ringY, nestBoost);
 
         // --- Assign goals + angriness for this frame ---
+        // Snapshot bees + despawning together under one lock (was a lock per bee = swipe lag).
         List<SingleBee> snapshot;
+        Set<SingleBee> despawningSnapshot;
         synchronized (beesLock) {
             snapshot = new ArrayList<>(bees);
+            despawningSnapshot = new HashSet<>(despawning);
         }
+        boolean fleeing = now < fleeEndTime;
         for (SingleBee bee : snapshot) {
-            boolean isDespawning;
-            synchronized (beesLock) {
-                isDespawning = despawning.contains(bee);
-            }
-            if (isDespawning) {
+            if (despawningSnapshot.contains(bee)) {
                 setOffScreenGoal(bee, centerX, centerY, ringX, ringY);
+                bee.setAngriness(effectiveAngriness);
+                continue;
+            }
+            if (fleeing) {
+                // Shaken/swiped: rush to the nearest edge and hold there until fleeEndTime.
+                setFleeGoal(bee, centerX, centerY);
                 bee.setAngriness(effectiveAngriness);
                 continue;
             }
@@ -292,6 +327,9 @@ public class BeeManager {
             swipeLayerDesired = wantSwipeLayer;
             setSwipeLayer(wantSwipeLayer);
         }
+
+        // --- Honey-bottle side indicator: flash the matching jar when the honey band worsens ---
+        updateHoneyIndicator(score);
     }
 
     /**
@@ -389,46 +427,226 @@ public class BeeManager {
         bee.setGoal(gX, gY);
     }
 
-    private void updateBeeVisuals(SingleBee bee) {
+    /**
+     * Per-bee alpha based on distance to the nearest screen edge: fully opaque inside, fading to
+     * fully transparent as the bee touches the edge. Uses the bee view centre (views are 100px).
+     */
+    private float clampedEdgeAlpha(int x, int y) {
+        double cx = x + 50.0;
+        double cy = y + 50.0;
+        double margin = EDGE_FADE_FRACTION * Math.min(screenW, screenH);
+        if (margin < 1) margin = 1;
+        double minEdge = Math.min(Math.min(cx, cy), Math.min(screenW - cx, screenH - cy));
+        double a = minEdge / margin;
+        if (a < 0) a = 0;
+        if (a > 1) a = 1;
+        return (float) a;
+    }
+
+    /** ONE batched main-thread update for the whole frame (replaces the old per-bee post). */
+    private void renderBeeFrames(List<BeeFrame> frames) {
         mainHandler.post(() -> {
-            // Don't recreate a view for a bee that has already been reaped.
-            synchronized (beesLock) {
-                if (!bees.contains(bee)) return;
-            }
-            View view = beeViews.get(bee);
-            int x = bee.getPosition(dim.WIDTH);
-            int y = bee.getPosition(dim.HEIGHT);
+            if (!isSimulationRunning) return; // torn down between post and run
+            for (BeeFrame f : frames) {
+                View view = beeViews.get(f.bee);
+                if (view == null) {
+                    ImageView imageView = new ImageView(context);
+                    imageView.setImageResource(R.mipmap.ic_launcher_round);
+                    imageView.setAlpha(f.alpha);
 
-            if (view == null) {
-                ImageView imageView = new ImageView(context);
-                imageView.setImageResource(R.mipmap.ic_launcher_round);
+                    WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                            100, 100,
+                            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT);
+                    params.gravity = Gravity.TOP | Gravity.START;
+                    params.x = f.x;
+                    params.y = f.y;
 
-                WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                        100, 100,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        PixelFormat.TRANSLUCENT);
-                params.gravity = Gravity.TOP | Gravity.START;
-                params.x = x;
-                params.y = y;
-
-                try {
-                    windowManager.addView(imageView, params);
-                    beeViews.put(bee, imageView);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error adding bee view", e);
-                }
-            } else {
-                WindowManager.LayoutParams params = (WindowManager.LayoutParams) view.getLayoutParams();
-                params.x = x;
-                params.y = y;
-                try {
-                    windowManager.updateViewLayout(view, params);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error updating bee layout", e);
+                    try {
+                        windowManager.addView(imageView, params);
+                        beeViews.put(f.bee, imageView);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error adding bee view", e);
+                    }
+                } else {
+                    WindowManager.LayoutParams params = (WindowManager.LayoutParams) view.getLayoutParams();
+                    if (params.x != f.x || params.y != f.y) {
+                        params.x = f.x;
+                        params.y = f.y;
+                        try {
+                            windowManager.updateViewLayout(view, params);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error updating bee layout", e);
+                        }
+                    }
+                    if (view.getAlpha() != f.alpha) {
+                        view.setAlpha(f.alpha);
+                    }
                 }
             }
         });
+    }
+
+    /** Lightweight per-frame render record (position + edge alpha), built on the sim thread. */
+    private static final class BeeFrame {
+        final SingleBee bee;
+        final int x;
+        final int y;
+        final float alpha;
+
+        BeeFrame(SingleBee bee, int x, int y, float alpha) {
+            this.bee = bee;
+            this.x = x;
+            this.y = y;
+            this.alpha = alpha;
+        }
+    }
+
+    // --- Shake/swipe flee mechanic (unifies both gestures) ---------------------------------
+
+    /** Which honey band a score sits in: 1 full, 2 medium, 3 low (more unproductive = less honey). */
+    private int honeyBandForScore(int score) {
+        if (score < SLOSH_START) return 1; // plenty of honey left
+        if (score < ANGER_START) return 2; // running low
+        return 3;                           // nearly empty
+    }
+
+    /** Flash the matching honey jar at the screen side when the band worsens as the score rises. */
+    private void updateHoneyIndicator(int score) {
+        if (score <= AMBIENT_SCORE) {
+            lastHoneyBand = 0;
+            return;
+        }
+        int band = honeyBandForScore(score);
+        if (band > lastHoneyBand) {
+            showHoneyBottle(band);
+        }
+        lastHoneyBand = band;
+    }
+
+    private void showHoneyBottle(int band) {
+        final int resId = band == 1 ? R.drawable.honey_bottle_full
+                : band == 2 ? R.drawable.honey_bottle_medium
+                : R.drawable.honey_bottle_low;
+        mainHandler.post(() -> {
+            if (!isSimulationRunning) return;
+            mainHandler.removeCallbacks(honeyHideRunnable);
+            removeHoneyBottleView();
+
+            ImageView iv = new ImageView(context);
+            iv.setImageResource(resId);
+            iv.setAlpha(0f);
+
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                    PixelFormat.TRANSLUCENT);
+            params.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+            params.x = 16;
+
+            try {
+                windowManager.addView(iv, params);
+                honeyBottleView = iv;
+                iv.animate().alpha(1f).setDuration(300).start();
+                mainHandler.postDelayed(honeyHideRunnable, 1500);
+            } catch (Exception e) {
+                Log.e(TAG, "Error adding honey bottle", e);
+            }
+        });
+    }
+
+    private final Runnable honeyHideRunnable = () -> {
+        final View v = honeyBottleView;
+        if (v == null) return;
+        v.animate().alpha(0f).setDuration(300).withEndAction(this::removeHoneyBottleView).start();
+    };
+
+    private void removeHoneyBottleView() {
+        if (honeyBottleView != null) {
+            try {
+                windowManager.removeView(honeyBottleView);
+            } catch (Exception e) {
+                Log.e(TAG, "Error removing honey bottle", e);
+            }
+            honeyBottleView = null;
+        }
+    }
+
+    /** Goal that pushes a fleeing bee onto the nearest screen edge (radial for shake, fixed for swipe). */
+    private void setFleeGoal(SingleBee bee, double centerX, double centerY) {
+        double dx, dy;
+        if (fleeRadial) {
+            dx = bee.getPosX() - centerX;
+            dy = bee.getPosY() - centerY;
+            double len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 1) {
+                double a = random.nextDouble() * Math.PI * 2;
+                dx = Math.cos(a);
+                dy = Math.sin(a);
+            } else {
+                dx /= len;
+                dy /= len;
+            }
+        } else {
+            dx = fleeDirX;
+            dy = fleeDirY;
+        }
+        bee.setGoal(centerX + dx * (screenW * 0.5), centerY + dy * (screenH * 0.5));
+    }
+
+    /** Linger long at low score, short when severe. */
+    private long fleeLingerForScore(int score) {
+        double t = clamp01((score - AMBIENT_SCORE) / (double) (SCORE_MAX - AMBIENT_SCORE));
+        return (long) (FLEE_LINGER_MAX_MS - t * (FLEE_LINGER_MAX_MS - FLEE_LINGER_MIN_MS));
+    }
+
+    /** Shared core of swipe + shake: kick every bee outward and hold the flee state for a while. */
+    private void flee(double dirX, double dirY, boolean radial, int score) {
+        long now = System.currentTimeMillis();
+        fleeRadial = radial;
+        fleeDirX = dirX;
+        fleeDirY = dirY;
+        fleeEndTime = now + fleeLingerForScore(score);
+
+        double centerX = screenW / 2.0;
+        double centerY = screenH / 2.0;
+        synchronized (beesLock) {
+            for (SingleBee bee : bees) {
+                double odx, ody;
+                if (radial) {
+                    odx = bee.getPosX() - centerX;
+                    ody = bee.getPosY() - centerY;
+                    double len = Math.sqrt(odx * odx + ody * ody);
+                    if (len < 1) {
+                        double a = random.nextDouble() * Math.PI * 2;
+                        odx = Math.cos(a);
+                        ody = Math.sin(a);
+                    } else {
+                        odx /= len;
+                        ody /= len;
+                    }
+                } else {
+                    odx = dirX;
+                    ody = dirY;
+                }
+                bee.applyImpulse(odx * SWIPE_IMPULSE, ody * SWIPE_IMPULSE);
+            }
+        }
+        if (score >= NEST_SCORE) {
+            // Stirred-up nest: they come back fast and angry (short linger + angriness boost).
+            nestBoostEndTime = now + NEST_BOOST_MS;
+        }
+    }
+
+    private void onShake() {
+        ProductivityState state = ProductivityEngine.getInstance().getState().getValue();
+        int score = state != null ? state.getScore() : 0;
+        if (score <= AMBIENT_SCORE) return; // no bees to scatter at this stage
+        flee(0, 0, true, score);
+        Log.d(TAG, "Shake scattered swarm (score=" + score + ")");
     }
 
     // --- Swipe-to-disperse: a full-screen touch layer that is only present at high severity. ---
@@ -478,26 +696,21 @@ public class BeeManager {
 
         ProductivityState state = ProductivityEngine.getInstance().getState().getValue();
         int score = state != null ? state.getScore() : 0;
-        boolean nest = score >= NEST_SCORE;
-
-        synchronized (beesLock) {
-            for (SingleBee bee : bees) {
-                bee.applyImpulse(nx * SWIPE_IMPULSE, ny * SWIPE_IMPULSE);
-                despawning.add(bee); // scatter off-screen; reaped once they leave the screen
-            }
-        }
-        if (nest) {
-            // Stirred-up nest: they come back fast and angry.
-            nestBoostEndTime = System.currentTimeMillis() + NEST_BOOST_MS;
-        }
-        Log.d(TAG, "Swipe dispersed swarm (nest=" + nest + ")");
+        // Same flee path as shake: push bees to the edge and hold them there (no despawn churn).
+        flee(nx, ny, false, score);
+        Log.d(TAG, "Swipe dispersed swarm (score=" + score + ")");
     }
 
     /** Hard teardown (service destroy / level 0). Removes every overlay window immediately. */
     public void removeAllBees() {
         isSimulationRunning = false;
         swipeLayerDesired = false; // keep the desired-state flag in sync with the torn-down layer
+        if (shakeDetector != null) shakeDetector.stop();
+        fleeEndTime = 0;
+        lastHoneyBand = 0;
         mainHandler.post(() -> {
+            mainHandler.removeCallbacks(honeyHideRunnable);
+            removeHoneyBottleView();
             for (View view : beeViews.values()) {
                 try {
                     windowManager.removeView(view);

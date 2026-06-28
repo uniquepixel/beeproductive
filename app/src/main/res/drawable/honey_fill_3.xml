@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLACEHOLDER ART. Honey-refill stage 3 of 3 (full). Replace with real frame. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- honey full -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M50,10 L86,30 L86,70 L50,90 L14,70 L14,30 Z" />
+    <!-- honeycomb cell outline -->
+    <path
+        android:strokeColor="@color/bee_dark"
+        android:strokeWidth="4"
+        android:fillColor="#11FFD700"
+        android:pathData="M50,8 L88,29 L88,71 L50,92 L12,71 L12,29 Z" />
+</vector>

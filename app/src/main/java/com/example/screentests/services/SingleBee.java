@@ -164,6 +164,15 @@ public class SingleBee {
         return (dimension == BeeManager.dim.WIDTH) ? (int) posX : (int) posY;
     }
 
+    /** Precise (double) positions, used by BeeManager for edge fade + flee direction. */
+    public double getPosX() {
+        return posX;
+    }
+
+    public double getPosY() {
+        return posY;
+    }
+
     /** True when the bee has left the visible screen rectangle (despawn is only allowed off-screen). */
     public boolean isOffScreen() {
         return posX < 0 || posX > maxX || posY < 0 || posY > MaxY;

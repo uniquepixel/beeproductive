@@ -294,6 +294,37 @@ public class ProductivityEngine {
         }
     }
 
+    /**
+     * Kicks the user out of an app when the Queen Bee decides against them: marks the app
+     * {@link AppStatus#BLOCKED} for {@code durationMs} (so re-entry is bounced by the existing
+     * BLOCKED check in {@link #onAppChanged}), sends the user HOME immediately, and resets the
+     * score so the Queen Bee chat ends. Reuses the existing lockout machinery — no new wiring.
+     */
+    public void blockApp(String packageName, long durationMs) {
+        if (packageName == null || packageName.isEmpty()) {
+            resetScore();
+            return;
+        }
+        final long until = System.currentTimeMillis() + Math.max(0, durationMs);
+        dbExecutor.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(applicationContext);
+            AppPolicy existing = db.appPolicyDao().getPolicyForPackage(packageName);
+            int severity = existing != null ? existing.severity : 1;
+            int aiConsent = existing != null ? existing.aiConsent : 0;
+            // Preserve severity/consent; only the status + block window change.
+            AppPolicy blocked = new AppPolicy(packageName, AppStatus.BLOCKED.name(), severity, until, aiConsent);
+            db.appPolicyDao().insertPolicy(blocked);
+        });
+
+        // Send them out of the app right now.
+        TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
+        if (tracker != null) {
+            tracker.enforceLockout();
+        }
+        // Clear the score so the intervention overlay + Queen Bee chat close.
+        resetScore();
+    }
+
     public void resetAllCategorizations() {
         dbExecutor.execute(() -> {
             AppDatabase.getInstance(applicationContext).appPolicyDao().deleteAllPolicies();
