@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
@@ -36,7 +37,6 @@ import com.example.screentests.R;
 import com.example.screentests.chat.QueenBeeChatManager;
 import com.example.screentests.chat.QueenBeeUiState;
 import com.example.screentests.chat.QueenMood;
-import com.example.screentests.database.ActivityLog;
 import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
 
@@ -137,6 +137,11 @@ public class OverlayService extends Service {
         Log.d(TAG, "Updating intervention show: " + show);
 
         if (show) {
+            if (!Settings.canDrawOverlays(this)) {
+                Log.w(TAG, "Cannot show intervention: Overlay permission not granted");
+                return;
+            }
+
             // Apply Material theme to the service context for proper inflation of Material Components
             ContextThemeWrapper wrapper = new ContextThemeWrapper(this, R.style.Theme_Screentests);
             interventionOverlay = LayoutInflater.from(wrapper).inflate(R.layout.overlay_intervention, null);
@@ -309,7 +314,7 @@ public class OverlayService extends Service {
             case SHOWING_HONEY: return R.drawable.queen_showing_honey;
             case EXCLAIMING: return R.drawable.queen_exclaiming;
             case ASKING: return R.drawable.queen_asking;
-            case THINKING: return R.drawable.queen_thinking;
+            case THINKING: return R.drawable.queen_asking;
             case TALKING_1:
             default: return R.drawable.queen_talking_1;
         }
@@ -356,6 +361,11 @@ public class OverlayService extends Service {
         }
 
         if (show) {
+            if (!Settings.canDrawOverlays(this)) {
+                Log.w(TAG, "Cannot show categorization overlay: Overlay permission not granted");
+                return;
+            }
+
             ContextThemeWrapper wrapper = new ContextThemeWrapper(this, R.style.Theme_Screentests);
             categorizationOverlay = LayoutInflater.from(wrapper).inflate(R.layout.dialog_app_categorization, null);
             

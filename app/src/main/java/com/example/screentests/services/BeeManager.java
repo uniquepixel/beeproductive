@@ -7,6 +7,7 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
@@ -32,42 +33,43 @@ import java.util.Set;
  * directly from {@link ProductivityEngine}: more unproductivity -> more bees, angrier bees,
  * bees sloshing in from off-screen, a brief screen-swarm near the top, and a cover-then-vanish
  * during the intervention. Only this class and {@link SingleBee} contain swarm logic;
- * OverlayService still drives us only through initBeeSwarm/startSimulation/removeAllBees.
+ * OverlayService still drives these only through initBeeSwarm/startSimulation/removeAllBees.
  */
 public class BeeManager {
     public enum dim {WIDTH, HEIGHT}
 
+    //Score thresholds!
     private static final String TAG = "BeeManager";
+    private static final int SCORE_MAX = 100;       //this should really not be changed
+    private static final int AMBIENT_SCORE = 20;   //below: no bees (matches engine level 0)
+    private static final int SLOSH_START = 35;     //above: bees start dipping into view
+    private static final int ANGER_START = 65;     //above: angriness ramps up
+    private static final int SWIPE_LAYER_SCORE = 70; //above: swipe-to-disperse layer is live
+    private static final int NEST_SCORE = 85;      //above: swipes stir up the "nest" -> "consumes" touches!! Would need a rework for an actual application
+    private static final int SWARM_EVENT_SCORE = 90; //brief all-in swarm event (below max)
 
-    // --- Score thresholds (all swarm display keys off these) ---
-    private static final int SCORE_MAX = 100;
-    private static final int AMBIENT_SCORE = 20;   // at/below this: no bees (matches engine level 0)
-    private static final int SLOSH_START = 35;     // above this: bees start dipping into view
-    private static final int ANGER_START = 65;     // above this: angriness ramps up
-    private static final int SWIPE_LAYER_SCORE = 70; // at/above this: swipe-to-disperse layer is live
-    private static final int NEST_SCORE = 85;      // at/above this: swipes stir up the "nest"
-    private static final int SWARM_EVENT_SCORE = 90; // brief all-in swarm event (below max)
+    private static final int MAX_BEES = 24;         //dont go beyond 1000
 
-    private static final int MAX_BEES = 24;
-
-    // --- Behaviour tuning ---
+    //Behaviour tuning
     private static final double ORBIT_RADIUS_FACTOR = 0.75; // ring radius vs half-screen -> mostly off-screen
-    private static final double ORBIT_SPEED = 0.02;         // radians per frame
-    private static final double SLOSH_INNER_FACTOR = 0.35;  // how far inside the screen a sloshing bee dips
-    private static final double OFFSCREEN_GOAL_FACTOR = 1.5; // despawn goal distance vs screen size
-    private static final long SWARM_EVENT_DURATION_MS = 1800;
-    private static final long INTERVENTION_COVER_MS = 1600;
-    private static final long NEST_BOOST_MS = 2500;
-    private static final double SWIPE_IMPULSE = 45.0;
+    private static final double ORBIT_SPEED = 0.02;         //radians per frame -> frame rate dependant (not good but whatever)
+    private static final double SLOSH_INNER_FACTOR = 0.35;  //how far inside the screen a sloshing bee dips
+    private static final double OFFSCREEN_GOAL_FACTOR = 1.5; //despawn goal distance vs screen size
+    private static final long SWARM_EVENT_DURATION_MS = 1800; //after swarm_event_score
+    private static final long INTERVENTION_COVER_MS = 1600;  //how long bees stay on the intervention screen
+    private static final long NEST_BOOST_MS = 2500;         //after shaking away angry bees, how long does it take until more, angrier ones appear
+    private static final double SWIPE_IMPULSE = 45.0;       //for bee goal vector calc
 
-    // Edge fade: a bee becomes fully transparent within this fraction of the smaller screen side.
-    private static final double EDGE_FADE_FRACTION = 0.15;
-    // Shake/swipe flee: bees rush to the edge and linger there. Linger is long at low score,
-    // short when the unproductivity is severe.
+    //Edge fade: a bee becomes fully transparent within this fraction
+    // of the smaller screen side, because i was too dumb to actually make them go off screen
+    //Greater values mean larger fade area, not stronger fade
+    private static final double EDGE_FADE_FRACTION = 1;
+    //Shake/swipe flee: bees rush to the edge and linger there. Linger is long at low score,
+    //short when the unproductivity is severe.
     private static final long FLEE_LINGER_MAX_MS = 5000;
     private static final long FLEE_LINGER_MIN_MS = 1000;
 
-    private static final int FRAME_MS = 32; // ~30 FPS
+    private static final int FRAME_MS = 32; // ca 30 FPS
 
     private final Context context;
     private final WindowManager windowManager;
@@ -82,46 +84,45 @@ public class BeeManager {
     // beeViews is only ever touched on the main thread.
     private final Map<SingleBee, View> beeViews = new HashMap<>();
 
-    private volatile boolean isSimulationRunning = false;
+    private volatile boolean isSimulationRunning = false; //volatile because threading is idiotic and i haven't found a better way. This makes way too many cache writes but i havent found a better way to fix the inconsistencies
 
-    // Cached at simulation start so the background loop never touches the WindowManager for metrics.
+    //cached at simulation start so the background loop doesnt touch windowmanager for metrics
     private int screenW = 1;
     private int screenH = 1;
 
     private long frame = 0;
 
-    // Brief "all bees swarm the screen" event (last escalation step before max).
+    //for the swarming event
     private boolean swarmEventArmed = true;
     private boolean swarmEventActive = false;
     private long swarmEventEndTime = 0;
 
-    // Intervention: cover the screen, then vanish entirely while the flag holds.
+    //for intervention
     private boolean interventionVanishing = false;
     private long interventionCoverEndTime = 0;
     private boolean lastIntervention = false;
 
-    // Swipe-to-disperse touch layer (only present at high severity).
+    //the infamous touch consuming swipe layer (only touched on the main thread)
     private View swipeLayer = null;
-    private boolean swipeLayerDesired = false; // sim-thread view of whether the layer should exist
+    private boolean swipeLayerDesired = false; //simthread view of whether the layer should exist
     // Written from the swipe callback (main thread), read by the sim loop -> volatile for safe publication.
     private volatile long nestBoostEndTime = 0;
 
-    // --- Shake/swipe flee state (written from gesture callbacks, read by the sim loop) ---
+    //for user interaction states (overwritten by gesture callbacks)
     private volatile long fleeEndTime = 0;
     private volatile boolean fleeRadial = false; // true: scatter radially (shake); false: along fleeDir (swipe)
     private volatile double fleeDirX = 0;
     private volatile double fleeDirY = 0;
     private ShakeDetector shakeDetector;
 
-    // --- Honey-bottle side indicator (briefly flashed when the honey band drops as the score rises) ---
-    private int lastHoneyBand = 0;     // 0 none, 1 full, 2 medium, 3 low (only touched on the sim thread)
-    private View honeyBottleView = null; // only touched on the main thread
+    //honey bottle logic (for shortly displayed container)
+    private int lastHoneyBand = 0;     //0 none, 1 full, 2 medium, 3 low -> enum wouldve been smarter but whatever
+    private View honeyBottleView = null; //only touched on the main thread
 
     public BeeManager(Context context, WindowManager windowManager, int score) {
         this.context = context;
         this.windowManager = windowManager;
-        // Shake scatters the swarm at any stage where bees exist (no manifest permission needed).
-        this.shakeDetector = new ShakeDetector(context, this::onShake);
+        this.shakeDetector = new ShakeDetector(context, this::onShake);//AI suggested this sorcery and i am frankly amazed it works. However, I formally distance myself from the wording "this::onShake".
     }
 
     public int getWindowSize(dim dimension) {
@@ -447,6 +448,13 @@ public class BeeManager {
     private void renderBeeFrames(List<BeeFrame> frames) {
         mainHandler.post(() -> {
             if (!isSimulationRunning) return; // torn down between post and run
+
+            if (!Settings.canDrawOverlays(context)) {
+                Log.w(TAG, "Overlay permission not granted. Stopping bee rendering.");
+                removeAllBees();
+                return;
+            }
+
             for (BeeFrame f : frames) {
                 View view = beeViews.get(f.bee);
                 if (view == null) {
@@ -531,6 +539,8 @@ public class BeeManager {
                 : R.drawable.honey_bottle_low;
         mainHandler.post(() -> {
             if (!isSimulationRunning) return;
+            if (!Settings.canDrawOverlays(context)) return;
+
             mainHandler.removeCallbacks(honeyHideRunnable);
             removeHoneyBottleView();
 
@@ -654,6 +664,8 @@ public class BeeManager {
     private void setSwipeLayer(boolean show) {
         mainHandler.post(() -> {
             if (show && swipeLayer == null) {
+                if (!Settings.canDrawOverlays(context)) return;
+
                 View layer = new View(context);
                 GestureDetector detector = new GestureDetector(context,
                         new GestureDetector.SimpleOnGestureListener() {

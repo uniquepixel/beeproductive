@@ -57,7 +57,7 @@ public class ShakeDetector implements SensorEventListener {
         float gX = event.values[0] / SensorManager.GRAVITY_EARTH;
         float gY = event.values[1] / SensorManager.GRAVITY_EARTH;
         float gZ = event.values[2] / SensorManager.GRAVITY_EARTH;
-        // Magnitude of the gravity-normalised acceleration vector (~1.0 at rest).
+        //how strong is the acceleration
         double gForce = Math.sqrt(gX * gX + gY * gY + gZ * gZ);
 
         if (gForce > SHAKE_THRESHOLD_G) {
