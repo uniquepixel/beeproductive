@@ -12,6 +12,7 @@ import com.example.screentests.network.ChatRequest;
 import com.example.screentests.network.OpenRouterClient;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +47,13 @@ public class QueenBeeChatManager {
     /** The Queen ends a reply with this token once she has decided; we parse it then strip it. */
     private static final Pattern DECISION_PATTERN =
             Pattern.compile("\\[\\s*DECISION\\s*:\\s*(REFILL|KICK)\\s*\\]", Pattern.CASE_INSENSITIVE);
+    /**
+     * Optional per-reply mood tag the Queen emits so the model — not just the network lifecycle —
+     * drives her expression (e.g. SHOWING_HONEY, SAD, ASKING). Parsed then stripped, like the
+     * decision token. See docs/QUEENBEE_UI_STATE_INTEGRATION.md.
+     */
+    private static final Pattern MOOD_PATTERN =
+            Pattern.compile("\\[\\s*MOOD\\s*:\\s*([A-Za-z0-9_]+)\\s*\\]", Pattern.CASE_INSENSITIVE);
 
     private Context appContext;
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
@@ -200,12 +208,21 @@ public class QueenBeeChatManager {
         String text = rawText != null ? rawText : "";
         QueenBeeUiState.Decision decision = QueenBeeUiState.Decision.NONE;
 
-        Matcher m = DECISION_PATTERN.matcher(text);
-        if (m.find()) {
-            decision = "REFILL".equalsIgnoreCase(m.group(1))
+        Matcher dm = DECISION_PATTERN.matcher(text);
+        if (dm.find()) {
+            decision = "REFILL".equalsIgnoreCase(dm.group(1))
                     ? QueenBeeUiState.Decision.REFILL : QueenBeeUiState.Decision.KICK;
-            text = m.replaceAll("").trim();
+            text = dm.replaceAll("").trim();
         }
+
+        // The model may also pick its own expression via a hidden [MOOD: X] tag; parse & strip it.
+        QueenMood modelMood = null;
+        Matcher mm = MOOD_PATTERN.matcher(text);
+        if (mm.find()) {
+            modelMood = parseMood(mm.group(1));
+            text = mm.replaceAll("").trim();
+        }
+
         if (text.isEmpty()) text = "..."; // never leave the box blank
         session.addAssistant(text);
 
@@ -218,11 +235,34 @@ public class QueenBeeChatManager {
             }
         }
 
-        QueenMood mood = decision == QueenBeeUiState.Decision.REFILL ? QueenMood.HAPPY
-                : decision == QueenBeeUiState.Decision.KICK ? QueenMood.EXCLAIMING
-                : QueenMood.TALKING_1;
-        postUi(mood, false, QueenBeeUiState.Speaker.QUEEN, text, decision);
+        postUi(pickMood(modelMood, decision), false, QueenBeeUiState.Speaker.QUEEN, text, decision);
         return text;
+    }
+
+    /**
+     * Chooses the Queen's expression for a reply. A mood the model picked wins; otherwise we fall
+     * back to the decision-driven defaults (and plain talking when neither applies), preserving the
+     * original network-lifecycle behaviour for models that don't emit a mood tag.
+     */
+    private QueenMood pickMood(QueenMood modelMood, QueenBeeUiState.Decision decision) {
+        if (modelMood != null) return modelMood;
+        if (decision == QueenBeeUiState.Decision.REFILL) return QueenMood.HAPPY;
+        if (decision == QueenBeeUiState.Decision.KICK) return QueenMood.EXCLAIMING;
+        return QueenMood.TALKING_1;
+    }
+
+    /**
+     * Maps a raw mood-tag value to a {@link QueenMood}. Unknown values and THINKING (which is
+     * reserved for the network lifecycle) return null so the caller falls back to its default.
+     */
+    private QueenMood parseMood(String raw) {
+        if (raw == null) return null;
+        try {
+            QueenMood mood = QueenMood.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+            return mood == QueenMood.THINKING ? null : mood;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private void handleQueenError(String error) {
@@ -326,6 +366,13 @@ public class QueenBeeChatManager {
         sb.append("The user will try to convince you that it is okay that they were unproductive. ")
           .append("Engage with their arguments and push back thoughtfully. ")
           .append("Keep each reply to a few sentences.\n\n")
+          .append("Begin EVERY reply with a hidden mood tag in the exact form [MOOD: X], where X is one ")
+          .append("of: TALKING_1, TALKING_2, ASKING, EXCLAIMING, SAD, HAPPY, SHOWING_HONEY. Choose the ")
+          .append("one that matches your tone in that reply — e.g. ASKING when you pose a question, ")
+          .append("EXCLAIMING when stern or outraged, SAD when disappointed, HAPPY when pleased, ")
+          .append("SHOWING_HONEY when you dangle the honey reward, and TALKING_1 or TALKING_2 for ")
+          .append("ordinary speech. Like the decision token below, the mood tag is a hidden control ")
+          .append("signal: never mention or explain it in your prose.\n\n")
           .append("You must eventually reach a verdict. The instant you are genuinely convinced and ")
           .append("decide to refill their honey, end that reply with the exact token ")
           .append("[DECISION: REFILL]. If they are dismissive, or you decide they truly must stop now, ")

@@ -51,8 +51,8 @@ points the real backend should:
 | `startSession()` | `mood=THINKING, thinking=true, speaker=QUEEN, text=""` |
 | Opening line ready | `mood=TALKING_1, thinking=false, speaker=QUEEN, text=<greeting>` |
 | `sendMessage()` (immediately) | `mood=THINKING, thinking=true, speaker=USER, text=<user line>` |
-| Queen reply ready | `mood=TALKING_1, thinking=false, speaker=QUEEN, text=<reply>` |
-| Reply contains a decision token | as above **plus** `decision=REFILL`/`KICK`, `mood=HAPPY`/`EXCLAIMING` |
+| Queen reply ready | `mood=<model's [MOOD: X] tag, else TALKING_1>, thinking=false, speaker=QUEEN, text=<reply>` |
+| Reply contains a decision token | as above **plus** `decision=REFILL`/`KICK`; mood is the model's tag, else `HAPPY`/`EXCLAIMING` |
 | 2-minute timeout, no decision | `decision=KICK` (the chosen fallback) |
 | Network error | `mood=ASKING, speaker=QUEEN, text="The Queen is speechless: ..."` |
 
@@ -68,6 +68,20 @@ The system prompt now instructs the Queen to end a reply with a hidden token onc
 `handleQueenReply(...)` parses the token, **strips it from the displayed text**, records the
 decision once per session, and cancels the 2-minute timeout. A hard timeout
 (`DECISION_TIMEOUT_MS = 2 min`) posts `KICK` if the Queen never decides.
+
+### The mood signal (model-driven `QueenMood`)
+
+The system prompt also asks the Queen to **begin every reply** with a hidden mood tag:
+
+```
+[MOOD: X]   X ∈ { TALKING_1, TALKING_2, ASKING, EXCLAIMING, SAD, HAPPY, SHOWING_HONEY }
+```
+
+`handleQueenReply(...)` parses & strips it (`MOOD_PATTERN`) and `pickMood(...)` uses the
+model-chosen mood for `QueenBeeUiState.mood`. Unknown values (and `THINKING`, which is reserved for
+the in-flight network state) are ignored and fall back to the old lifecycle default: `TALKING_1`,
+or `HAPPY`/`EXCLAIMING` when a decision is present. The overlay renders whatever mood it receives,
+so no overlay change was needed.
 
 ---
 

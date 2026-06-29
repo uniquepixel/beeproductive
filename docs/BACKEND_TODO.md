@@ -51,9 +51,13 @@ and `BeeManager.showHoneyBottle`).
    model produces structured output, translate it to a `QueenBeeUiState.Decision` and `postValue`
    it on `getUiState()` (see the integration doc). The token parser in
    `QueenBeeChatManager.handleQueenReply` is the only thing to swap.
-2. **Backend-driven moods.** Today the manager sets mood from the network lifecycle. To let the
-   model pick moods (e.g. `SHOWING_HONEY`, `SAD`), include a mood in your reply payload and post it
-   in `QueenBeeUiState.mood`.
+2. ~~**Backend-driven moods.**~~ **Done.** The system prompt now asks the Queen to begin every
+   reply with a hidden `[MOOD: X]` tag (one of the `QueenMood` values except `THINKING`).
+   `handleQueenReply` parses & strips it (`MOOD_PATTERN`) and, via `pickMood(...)`, lets the
+   model-chosen mood drive `QueenBeeUiState.mood`. It falls back to the old network-lifecycle moods
+   (`TALKING_1`, and `HAPPY`/`EXCLAIMING` for a decision) when the model emits no tag, so the
+   overlay needs no changes. To move this to a real backend, post the mood on the same LiveData
+   instead of parsing a tag.
 3. **Tuning.** `DECISION_TIMEOUT_MS` (2 min), `KICK_BLOCK_MS` (5 min cooldown), shake threshold
    (`ShakeDetector.SHAKE_THRESHOLD_G`), and flee linger bounds are constants — adjust to taste.
 
