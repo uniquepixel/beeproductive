@@ -1,4 +1,6 @@
+//This Class is mostly AI generated.
 package com.example.screentests.services;
+
 
 import android.content.Context;
 import android.hardware.Sensor;

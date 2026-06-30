@@ -41,6 +41,7 @@ import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
 
 public class OverlayService extends Service {
+    //Variables extracted by AI
     private static final String TAG = "OverlayService";
     private static final String CHANNEL_ID = "OverlayServiceChannel";
     private static final int NOTIFICATION_ID = 1;
@@ -56,8 +57,7 @@ public class OverlayService extends Service {
     private BeeManager beeManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // How long a kicked-out app stays BLOCKED before it can be reopened.
-    private static final long KICK_BLOCK_MS = 5 * 60 * 1000L;
+    private static final long KICK_BLOCK_MS = 5 * 60 * 1000L;//App block after intervention: 5min
 
     // Live references to the intervention views while it is showing (null otherwise).
     private TextView chatDisplay;
@@ -66,7 +66,7 @@ public class OverlayService extends Service {
     private String activePackageName = "";
     private QueenBeeUiState.Decision lastDecision = QueenBeeUiState.Decision.NONE;
 
-    // Two-frame "talking" animation state.
+    //talking anim
     private boolean talkingActive = false;
     private boolean talkingFrameTwo = false;
 
@@ -78,7 +78,7 @@ public class OverlayService extends Service {
         updateCategorizationOverlay(state.isCheckRequiredForUnknownApp(), state.getCurrentPackageName());
     };
 
-    // Queen Bee chat UI channel — same LiveData+observeForever pattern as the score state.
+    //Backend state observer, partially AI generated
     private final Observer<QueenBeeUiState> queenUiObserver = this::renderQueenUiState;
 
     @Override
@@ -90,7 +90,7 @@ public class OverlayService extends Service {
         createNotificationChannel();
     }
 
-    @Override
+    @Override//AI generated
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "Service onStartCommand");
         
@@ -134,11 +134,11 @@ public class OverlayService extends Service {
 
     private void updateIntervention(boolean show, String sessionId) {
         if (show == isInterventionShowing) return;
-        Log.d(TAG, "Updating intervention show: " + show);
+        Log.d(TAG, "Updating intervention, show: " + show);
 
         if (show) {
             if (!Settings.canDrawOverlays(this)) {
-                Log.w(TAG, "Cannot show intervention: Overlay permission not granted");
+                Log.w(TAG, "Cannot show intervention: No Overlay Perms");
                 return;
             }
 
@@ -151,7 +151,7 @@ public class OverlayService extends Service {
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, // Removed NOT_TOUCH_MODAL to ensure input works better
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                     PixelFormat.TRANSLUCENT);
 
             // Adjust soft input mode to push content up
@@ -182,8 +182,7 @@ public class OverlayService extends Service {
                 }
             });
 
-            // Send = hand the text to the manager; ALL chat UI updates flow back via the uiState
-            // observer (renderQueenUiState), so there is no duplicate UI logic here.
+            //Send = hand text to manager -> back to uiState
             Runnable sendAction = () -> {
                 String text = chatInput.getText().toString().trim();
                 if (!text.isEmpty() && activeSessionId != null) {
@@ -206,17 +205,17 @@ public class OverlayService extends Service {
                 windowManager.addView(interventionOverlay, params);
                 isInterventionShowing = true;
                 animateInterventionIn(interventionOverlay, chatContainer, queenIcon);
-                // Render whatever the Queen chat currently holds (e.g. her opening line / thinking).
+                //queen text
                 renderQueenUiState(QueenBeeChatManager.getInstance().getUiState().getValue());
             } catch (Exception e) {
                 Log.e(TAG, "Error adding intervention overlay", e);
             }
-        } else {
+        } else {//hide overlay ERRORS HERE (fixed now but might be back)
             stopTalkingAnimation();
             chatDisplay = null;
             queenIcon = null;
             activeSessionId = null;
-            lastDecision = QueenBeeUiState.Decision.NONE;
+            lastDecision = QueenBeeUiState.Decision.NONE;//does this need to be reset?
             if (interventionOverlay != null) {
                 try {
                     windowManager.removeView(interventionOverlay);
@@ -229,8 +228,7 @@ public class OverlayService extends Service {
         }
     }
 
-    // ---- Intervention entrance animation + Queen UI rendering -----------------------------
-
+    //Values generated by AI
     private void animateInterventionIn(View overlay, View chatContainer, View queen) {
         overlay.setAlpha(0f);
         overlay.animate().alpha(1f).setDuration(250).start();
@@ -247,16 +245,15 @@ public class OverlayService extends Service {
         }
     }
 
-    /** Renders the single last line + Queen mood + any final decision. No-op when hidden. */
-    private void renderQueenUiState(QueenBeeUiState s) {
-        if (s == null || chatDisplay == null || queenIcon == null) return;
+    private void renderQueenUiState(QueenBeeUiState s) {//For last line container, mood, final descision
+        if (s == null || chatDisplay == null || queenIcon == null) return;//no display
 
-        // Big box shows only the latest non-empty line; crossfade when it changes.
+        //Text container
         if (s.text != null && !s.text.isEmpty() && !s.text.equals(chatDisplay.getText().toString())) {
             crossfadeText(chatDisplay, s.text);
         }
 
-        // Queen image: thinking, an animated talking face, or a fixed mood.
+        //The bee itself
         if (s.thinking) {
             stopTalkingAnimation();
             queenIcon.setImageResource(moodToDrawable(QueenMood.THINKING));
@@ -267,7 +264,7 @@ public class OverlayService extends Service {
             queenIcon.setImageResource(moodToDrawable(s.mood));
         }
 
-        // Final verdict — act on it exactly once.
+        //Final decision
         if (s.decision != QueenBeeUiState.Decision.NONE && lastDecision == QueenBeeUiState.Decision.NONE) {
             lastDecision = s.decision;
             if (s.decision == QueenBeeUiState.Decision.REFILL) {
@@ -278,6 +275,18 @@ public class OverlayService extends Service {
         }
     }
 
+
+
+
+
+
+
+
+
+
+
+
+    /// //////////////////////////////////////////////////////////////////////////////////  Helper functions
     private void crossfadeText(TextView view, String newText) {
         view.animate().alpha(0f).setDuration(120).withEndAction(() -> {
             view.setText(newText);
@@ -320,7 +329,6 @@ public class OverlayService extends Service {
         }
     }
 
-    /** Refill verdict: play the 3-frame honey-fill animation, then reset the score (closes overlay). */
     private void playHoneyRefillThenReset() {
         stopTalkingAnimation();
         if (queenIcon != null) queenIcon.setImageResource(moodToDrawable(QueenMood.SHOWING_HONEY));
@@ -346,9 +354,41 @@ public class OverlayService extends Service {
                 1200L);
     }
 
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Overlay Service Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.d(TAG, "Service onDestroy");
+        super.onDestroy();
+        if (isObserverRegistered) {
+            ProductivityEngine.getInstance().getState().removeObserver(stateObserver);
+            QueenBeeChatManager.getInstance().getUiState().removeObserver(queenUiObserver);
+            isObserverRegistered = false;
+        }
+        stopTalkingAnimation();
+    }
+
+
+
+
+
+    /// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// end of helper functions
     private void updateCategorizationOverlay(boolean show, String packageName) {
         if (show == isCategorizationShowing && packageName.equals(lastCategorizationPackage)) return;
-        Log.d(TAG, "Updating categorization overlay: show=" + show + ", pkg=" + packageName);
+        Log.d(TAG, "Update categorization overlay: show=" + show + ", pkg=" + packageName);
 
         // Remove old if exists
         if (categorizationOverlay != null) {
@@ -403,31 +443,5 @@ public class OverlayService extends Service {
             isCategorizationShowing = false;
             lastCategorizationPackage = "";
         }
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Overlay Service Channel",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(serviceChannel);
-            }
-        }
-    }
-
-    @Override
-    public void onDestroy() {
-        Log.d(TAG, "Service onDestroy");
-        super.onDestroy();
-        if (isObserverRegistered) {
-            ProductivityEngine.getInstance().getState().removeObserver(stateObserver);
-            QueenBeeChatManager.getInstance().getUiState().removeObserver(queenUiObserver);
-            isObserverRegistered = false;
-        }
-        stopTalkingAnimation();
     }
 }

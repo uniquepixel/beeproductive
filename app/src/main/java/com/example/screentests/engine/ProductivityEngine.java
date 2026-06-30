@@ -45,7 +45,11 @@ public class ProductivityEngine {
     private static final long DEFAULT_SCORE_INTERVAL_MS = 60_000L; // 1 minute
     private static final long MIN_SCORE_INTERVAL_MS = 1_000L;      // floor to avoid pathological values
 
+    private static final String KEY_MAX_BEES = "max_bees";
+    private static final int DEFAULT_MAX_BEES = 24;
+
     private volatile long scoreIntervalMillis = DEFAULT_SCORE_INTERVAL_MS;
+    private volatile int maxBees = DEFAULT_MAX_BEES;
     private ScheduledFuture<?> tickFuture;
 
     private ProductivityEngine() {
@@ -69,6 +73,11 @@ public class ProductivityEngine {
         scoreIntervalMillis = applicationContext
                 .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getLong(KEY_SCORE_INTERVAL_MS, DEFAULT_SCORE_INTERVAL_MS);
+        
+        maxBees = applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_MAX_BEES, DEFAULT_MAX_BEES);
+
         scheduleTick();
     }
 
@@ -106,6 +115,21 @@ public class ProductivityEngine {
                     .apply();
         }
         scheduleTick();
+    }
+
+    public int getMaxBees() {
+        return maxBees;
+    }
+
+    public void setMaxBees(int count) {
+        this.maxBees = Math.max(1, count);
+        if (applicationContext != null) {
+            applicationContext
+                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt(KEY_MAX_BEES, this.maxBees)
+                    .apply();
+        }
     }
 
     // Frontend can observe this LiveData to get UI updates

@@ -48,8 +48,6 @@ public class BeeManager {
     private static final int NEST_SCORE = 85;      //above: swipes stir up the "nest" -> "consumes" touches!! Would need a rework for an actual application
     private static final int SWARM_EVENT_SCORE = 90; //brief all-in swarm event (below max)
 
-    private static final int MAX_BEES = 24;         //dont go beyond 1000
-
     //Behaviour tuning
     private static final double ORBIT_RADIUS_FACTOR = 0.75; // ring radius vs half-screen -> mostly off-screen
     private static final double ORBIT_SPEED = 0.02;         //radians per frame -> frame rate dependant (not good but whatever)
@@ -261,18 +259,19 @@ public class BeeManager {
                 : (coverScreen ? Math.max(angriness, 0.6) : angriness);
 
         // --- Target bee count from score ---
+        int maxBees = ProductivityEngine.getInstance().getMaxBees();
         int targetCount;
         if (intervention && interventionVanishing) {
             targetCount = 0; // vanish phase
         } else if (coverScreen) {
-            targetCount = MAX_BEES; // fill the screen
+            targetCount = maxBees; // fill the screen
         } else if (score <= AMBIENT_SCORE) {
             targetCount = 0;
         } else {
             double t = (score - AMBIENT_SCORE) / (double) (SCORE_MAX - AMBIENT_SCORE);
-            targetCount = (int) Math.round(MAX_BEES * t);
+            targetCount = (int) Math.round(maxBees * t);
         }
-        targetCount = Math.max(0, Math.min(MAX_BEES, targetCount));
+        targetCount = Math.max(0, Math.min(maxBees, targetCount));
 
         boolean structureChanged = adjustPopulation(targetCount, centerX, centerY, ringX, ringY, nestBoost);
 

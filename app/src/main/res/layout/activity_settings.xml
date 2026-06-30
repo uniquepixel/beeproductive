@@ -9,7 +9,7 @@
     android:clipChildren="false"
     tools:context=".frontend.SettingsActivity">
 
-    <!-- Subtle Hexagon Background Pattern (Consistent with Main) -->
+    <!-- Subtle Hexagon Background Pattern -->
     <ImageView
         android:layout_width="350dp"
         android:layout_height="350dp"
@@ -60,78 +60,86 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="48dp"
-                android:layout_marginBottom="64dp"
+                android:layout_marginBottom="48dp"
                 android:fontFamily="sans-serif-black"
                 android:text="Settings"
                 android:textColor="@color/bee_dark"
                 android:textSize="48sp" />
 
-            <!-- Example Button 1 -->
-            <com.google.android.material.button.MaterialButton
-                style="@style/Widget.Material3.Button.TextButton"
+            <!-- Swarm Aggression Section -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:text="Your Stats"
-                android:textAlignment="viewStart"
-                android:textColor="@color/bee_dark"
-                android:textSize="18sp"
-                app:icon="@drawable/ic_hexagon"
-                app:iconSize="18dp"
-                app:iconTint="@color/bee_yellow" />
+                android:orientation="vertical"
+                android:padding="8dp">
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_swarm_aggression"
+                    android:textColor="@color/bee_dark"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+                
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/aggressionSlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="1.0"
+                    android:valueTo="60.0"
+                    android:stepSize="1.0"
+                    app:thumbColor="@color/bee_yellow"
+                    app:trackColorActive="@color/bee_yellow" />
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:text="Fast ->"
+                    android:textColor="@color/bee_dark"
+                    android:alpha="0.6"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
-            <!-- Fancy Divider 1 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="2dp"
                 android:layout_marginHorizontal="8dp"
-                android:layout_marginVertical="8dp"
+                android:layout_marginVertical="16dp"
                 android:alpha="0.3"
                 android:background="@drawable/divider_bee_line" />
 
-            <!-- Example Button 2 -->
-            <com.google.android.material.button.MaterialButton
-                style="@style/Widget.Material3.Button.TextButton"
+            <!-- Swarm Size Section -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:text="Notifications"
-                android:textAlignment="viewStart"
-                android:textColor="@color/bee_dark"
-                android:textSize="18sp"
-                app:icon="@drawable/ic_hexagon"
-                app:iconSize="18dp"
-                app:iconTint="@color/bee_yellow" />
+                android:orientation="vertical"
+                android:padding="8dp">
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_swarm_size"
+                    android:textColor="@color/bee_dark"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+                
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/sizeSlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="1.0"
+                    android:valueTo="100.0"
+                    android:stepSize="1.0"
+                    app:thumbColor="@color/bee_yellow"
+                    app:trackColorActive="@color/bee_yellow" />
+            </LinearLayout>
 
-            <!-- Fancy Divider 2 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="2dp"
                 android:layout_marginHorizontal="8dp"
-                android:layout_marginVertical="8dp"
-                android:alpha="0.3"
-                android:background="@drawable/divider_bee_line" />
-
-            <!-- Example Button 3 -->
-            <com.google.android.material.button.MaterialButton
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:text="Productivity Settings"
-                android:textAlignment="viewStart"
-                android:textColor="@color/bee_dark"
-                android:textSize="18sp"
-                app:icon="@drawable/ic_hexagon"
-                app:iconSize="18dp"
-                app:iconTint="@color/bee_yellow" />
-
-            <!-- Fancy Divider 3 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="2dp"
-                android:layout_marginHorizontal="8dp"
-                android:layout_marginVertical="8dp"
+                android:layout_marginVertical="16dp"
                 android:alpha="0.3"
                 android:background="@drawable/divider_bee_line" />
 
@@ -150,7 +158,6 @@
                 app:iconSize="18dp"
                 app:iconTint="@color/bee_yellow" />
 
-            <!-- Fancy Divider 4 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="2dp"
