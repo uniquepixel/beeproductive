@@ -458,7 +458,7 @@ public class BeeManager {
                 View view = beeViews.get(f.bee);
                 if (view == null) {
                     ImageView imageView = new ImageView(context);
-                    imageView.setImageResource(R.mipmap.ic_launcher_round);
+                    imageView.setImageResource(R.drawable.worker_bee);
                     imageView.setAlpha(f.alpha);
 
                     WindowManager.LayoutParams params = new WindowManager.LayoutParams(

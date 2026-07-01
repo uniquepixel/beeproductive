@@ -7,7 +7,6 @@
     android:background="@color/bee_soft_yellow"
     android:clipChildren="false">
 
-    <!-- Subtle Hexagon Background Pattern -->
     <ImageView
         android:layout_width="350dp"
         android:layout_height="350dp"
@@ -52,7 +51,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Last Activity Screenshot (Optional Overlay) -->
+
     <ImageView
         android:id="@+id/lastActivityScreenshot"
         android:layout_width="0dp"
@@ -79,7 +78,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Chat message display - Fills middle space -->
+
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/chatContainer"
         android:layout_width="0dp"
@@ -105,7 +104,6 @@
             android:textSize="18sp" />
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- User input - Height matches Queen Bee Icon -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/inputContainer"
         android:layout_width="0dp"
@@ -117,7 +115,6 @@
         app:cardCornerRadius="24dp"
         app:cardElevation="8dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/queenBeeIcon"
         app:layout_constraintStart_toStartOf="parent">
 
         <LinearLayout
@@ -134,7 +131,7 @@
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
                 android:gravity="top"
-                android:hint="I doomscroll because..."
+                android:hint="Chat with the Queen!"
                 android:imeOptions="actionSend"
                 android:inputType="textMultiLine"
                 android:padding="12dp"
@@ -153,15 +150,17 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Queen Bee mood image; OverlayService swaps this per QueenBeeUiState.mood. -->
+
     <ImageView
         android:id="@+id/queenBeeIcon"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="24dp"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_marginEnd="0dp"
+        android:layout_marginBottom="40dp"
         android:src="@drawable/queen_asking"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintEnd_toEndOf="parent"
+        android:elevation="10dp"
+        />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
