@@ -48,8 +48,11 @@ public class ProductivityEngine {
     private static final String KEY_MAX_BEES = "max_bees";
     private static final int DEFAULT_MAX_BEES = 24;
 
+    private static final String KEY_ENABLED = "engine_enabled";
+
     private volatile long scoreIntervalMillis = DEFAULT_SCORE_INTERVAL_MS;
     private volatile int maxBees = DEFAULT_MAX_BEES;
+    private volatile boolean enabled = true;
     private ScheduledFuture<?> tickFuture;
 
     private ProductivityEngine() {
@@ -77,6 +80,10 @@ public class ProductivityEngine {
         maxBees = applicationContext
                 .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getInt(KEY_MAX_BEES, DEFAULT_MAX_BEES);
+
+        enabled = applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_ENABLED, true);
 
         scheduleTick();
     }
@@ -117,6 +124,38 @@ public class ProductivityEngine {
         scheduleTick();
     }
 
+    /** Whether the whole app functionality (tracking, swarm, interventions, overlays) is on. */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
+     * Master on/off switch. When turned off, all activity stops: the score ticker and app
+     * tracking are gated off, the running score is cleared, and a neutral state is posted so
+     * the OverlayManager removes the bee swarm and any overlays.
+     */
+    public void setEnabled(boolean value) {
+        enabled = value;
+        if (applicationContext != null) {
+            applicationContext
+                    .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_ENABLED, value)
+                    .apply();
+        }
+        if (!value) {
+            currentScore = 0;
+            minutesUnproductiveInCurrentSession = 0;
+            if (activeQueenSessionId != null) {
+                QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
+                activeQueenSessionId = null;
+            }
+            ProductivityState current = stateLiveData.getValue();
+            String pkg = (current != null) ? current.getCurrentPackageName() : "";
+            stateLiveData.postValue(new ProductivityState(0, 0, false, pkg, false, false, false, null));
+        }
+    }
+
     public int getMaxBees() {
         return maxBees;
     }
@@ -141,7 +180,7 @@ public class ProductivityEngine {
      * Called by AccessibilityService when a new app is opened.
      */
     public void onAppChanged(String packageName) {
-        if (applicationContext == null) return;
+        if (applicationContext == null || !enabled) return;
 
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
@@ -184,7 +223,7 @@ public class ProductivityEngine {
      * The internal background ticker. Runs every 1 minute.
      */
     private void tickScoreLogic() {
-        if (applicationContext == null) return;
+        if (applicationContext == null || !enabled) return;
         
         ProductivityState currentState = stateLiveData.getValue();
         if (currentState == null || currentState.getCurrentPackageName().isEmpty()) return;

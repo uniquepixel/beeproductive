@@ -40,6 +40,11 @@ public class MainActivity extends AppCompatActivity {
 
         ProductivityEngine.getInstance().init(getApplicationContext());
 
+        com.google.android.material.materialswitch.MaterialSwitch productivitySwitch = findViewById(R.id.productivitySwitch);
+        productivitySwitch.setChecked(ProductivityEngine.getInstance().isEnabled());
+        productivitySwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
+                ProductivityEngine.getInstance().setEnabled(isChecked));
+
         ProductivityEngine.getInstance().getState().observe(this, this::updateUI);
 
         checkOverlayPermission();
