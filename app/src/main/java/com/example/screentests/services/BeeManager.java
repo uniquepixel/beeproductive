@@ -30,12 +30,15 @@ import java.util.Set;
 
 /**
  * Owns the bee swarm overlay. The swarm is fully driven by the productivity score it reads
- * directly from {@link ProductivityEngine}: more unproductivity -> more bees, angrier bees,
- * bees sloshing in from off-screen, a brief screen-swarm near the top, and a cover-then-vanish
- * during the intervention. Only this class and {@link SingleBee} contain swarm logic;
- * OverlayService still drives these only through initBeeSwarm/startSimulation/removeAllBees.
+ * directly from {@link ProductivityEngine}. more unproductivity -> more bees, angrier bees,
+ * bees slosh in from off-screen, a brief screen-swarm near max score, and a cover-then-vanish
+ * during the intervention. Swarm logic exclusive to this and {@link SingleBee} for bee instances
+ *
+ * I let AI pass over this class and unify / clean up the codebase. I have marked AI generated methods and
+ * let the AI mark where it merged duplicate elements across my classes with "Outsourced duplicate codebase by AI".
  */
 public class BeeManager {
+    //Variables mostly extracted from the code by AI
     public enum dim {WIDTH, HEIGHT}
 
     //Score thresholds!
@@ -67,7 +70,7 @@ public class BeeManager {
     private static final long FLEE_LINGER_MAX_MS = 5000;
     private static final long FLEE_LINGER_MIN_MS = 1000;
 
-    private static final int FRAME_MS = 32; // ca 30 FPS
+    private static final int FRAME_MS = 32; // etw 30 FPS
 
     private final Context context;
     private final WindowManager windowManager;
@@ -134,23 +137,25 @@ public class BeeManager {
 
     /**
      * Kept for the OverlayService contract. Bee count is now derived from the score, so this
-     * just ensures the score-driven simulation is running (no destructive repopulate, which was
-     * the source of the old race condition).
+     * just ensures the score-driven simulation is running (-> no destructive repopulate -> race cond.!)
      */
     public void initBeeSwarm(int level) {
         Log.d(TAG, "initBeeSwarm hint level: " + level);
         startSimulation();
     }
 
+    /** Starts the bee simulation
+     * **/
     public void startSimulation() {
         if (isSimulationRunning) return;
         isSimulationRunning = true;
 
-        // Snapshot screen size once on the calling (main) thread.
+        //Snapshot screen size once on the main thread.
+        //If we wanted the screen to be able to rotate then this would need constant refreshing!
         screenW = Math.max(1, getWindowSize(dim.WIDTH));
         screenH = Math.max(1, getWindowSize(dim.HEIGHT));
 
-        // Listen for shakes while the swarm is alive.
+        //shake listener
         if (shakeDetector != null) shakeDetector.start();
 
         new Thread(() -> {
@@ -162,8 +167,7 @@ public class BeeManager {
 
                 driveSwarm(score, intervention);
 
-                // Physics on a stable snapshot, then ONE batched UI post for the whole frame
-                // (was one main-thread post per bee per frame -> the old swipe/shake lag source).
+                // Physics on a stable snapshot, then ONE batched UI post for the whole frame - fix by AI
                 List<SingleBee> snapshot;
                 synchronized (beesLock) {
                     snapshot = new ArrayList<>(bees);
@@ -177,9 +181,9 @@ public class BeeManager {
                 }
                 renderBeeFrames(frames);
 
-                reapOffScreenBees(snapshot);
+                killOffScreenBees(snapshot);
 
-                // Self-stop when fully calm and empty (OverlayService restarts us on the next level rise).
+                //stop condition, OverlayService restarts if necessary
                 if (score <= AMBIENT_SCORE && !intervention) {
                     boolean empty;
                     synchronized (beesLock) {
@@ -205,7 +209,7 @@ public class BeeManager {
     }
 
     /**
-     * The brain: reads the score and updates target count, goals, angriness and special events.
+     * reads score and updates target count, goals, angriness, special events (only 90% swarm event atm)
      */
     private void driveSwarm(int score, boolean intervention) {
         long now = System.currentTimeMillis();
@@ -218,9 +222,9 @@ public class BeeManager {
         double angriness = clamp01((score - ANGER_START) / (double) (SCORE_MAX - ANGER_START));
         double slosh = clamp01((score - SLOSH_START) / (double) (SCORE_MAX - SLOSH_START));
 
-        // --- Intervention state machine: cover the screen, then vanish ---
+        //Swarm states
         if (intervention && !lastIntervention) {
-            // Rising edge: start the cover phase.
+            //start cover phase
             interventionVanishing = false;
             interventionCoverEndTime = now + INTERVENTION_COVER_MS;
         }
@@ -234,7 +238,7 @@ public class BeeManager {
             interventionVanishing = true;
         }
 
-        // --- Brief swarm event (only below max; the intervention owns the top) ---
+        //90% swarm evebt
         if (!intervention) {
             if (score >= SWARM_EVENT_SCORE) {
                 if (swarmEventArmed && !swarmEventActive) {
@@ -244,7 +248,7 @@ public class BeeManager {
                     Log.d(TAG, "Swarm event triggered");
                 }
             } else if (score < SWARM_EVENT_SCORE - 5) {
-                swarmEventArmed = true; // re-arm once we've dropped back down
+                swarmEventArmed = true; //i like to think of this as the reload speed of a swarm "cannon" lol
             }
             if (swarmEventActive && now >= swarmEventEndTime) {
                 swarmEventActive = false;
@@ -258,13 +262,13 @@ public class BeeManager {
         double effectiveAngriness = nestBoost ? Math.max(angriness, 0.9)
                 : (coverScreen ? Math.max(angriness, 0.6) : angriness);
 
-        // --- Target bee count from score ---
+        //Population
         int maxBees = ProductivityEngine.getInstance().getMaxBees();
         int targetCount;
         if (intervention && interventionVanishing) {
-            targetCount = 0; // vanish phase
+            targetCount = 0; //vanish
         } else if (coverScreen) {
-            targetCount = maxBees; // fill the screen
+            targetCount = maxBees; //fill screen
         } else if (score <= AMBIENT_SCORE) {
             targetCount = 0;
         } else {
@@ -275,8 +279,9 @@ public class BeeManager {
 
         boolean structureChanged = adjustPopulation(targetCount, centerX, centerY, ringX, ringY, nestBoost);
 
-        // --- Assign goals + angriness for this frame ---
-        // Snapshot bees + despawning together under one lock (was a lock per bee = swipe lag).
+        //goal + angriness update
+        //bee despawning needs to stay under one lock -> if not then lots of lag :/
+        //snapshot is used to iterate over a single list of bees without holding onto the lock during logic/math
         List<SingleBee> snapshot;
         Set<SingleBee> despawningSnapshot;
         synchronized (beesLock) {
@@ -290,22 +295,20 @@ public class BeeManager {
                 bee.setAngriness(effectiveAngriness);
                 continue;
             }
-            if (fleeing) {
-                // Shaken/swiped: rush to the nearest edge and hold there until fleeEndTime.
-                setFleeGoal(bee, centerX, centerY);
+            if (fleeing) {//upon shake/swipe
+                setFleeGoal(bee, centerX, centerY);//push force origin basically -> works better than random edge pos because screen isnt a circle (hopefully)
                 bee.setAngriness(effectiveAngriness);
                 continue;
             }
 
             double gx, gy;
-            if (coverScreen) {
-                // Spread across the whole visible screen (stable per-bee via phase).
+            if (coverScreen) {//AI generated screen cover event. I don't really understand the maths here but it seems to work
                 gx = screenW * mapUnit(frac(bee.getPhase()));
                 gy = screenH * mapUnit(frac(bee.getPhase() * 1.6180339887));
-            } else {
+            } else {//Random circular goal movement (-> usual case)
                 double angle = bee.getPhase() + frame * ORBIT_SPEED * (1 + effectiveAngriness);
                 double radiusFactor = 1.0;
-                // Sloshing: a slow per-bee wave occasionally pulls the goal inside the screen.
+                //bee sloshing. Doing it for one bee is usually enough because of the swarm cohesion force
                 double wave = Math.sin(frame * 0.012 + bee.getPhase() * 3.0);
                 if (slosh > 0 && wave > (1.0 - slosh)) {
                     radiusFactor = SLOSH_INNER_FACTOR;
@@ -317,31 +320,31 @@ public class BeeManager {
             bee.setAngriness(effectiveAngriness);
         }
 
-        if (structureChanged) {
+        if (structureChanged) {//list refresh -> update neighbours
             refreshNeighbourSnapshots();
         }
 
-        // --- Swipe layer presence follows the score (only post on change) ---
+        //add swipe layer on high unproductivity severity
+        //TODO: Make this layer dynamic and make an own handler so it only registers bee swipes
         boolean wantSwipeLayer = score >= SWIPE_LAYER_SCORE;
         if (wantSwipeLayer != swipeLayerDesired) {
             swipeLayerDesired = wantSwipeLayer;
             setSwipeLayer(wantSwipeLayer);
         }
 
-        // --- Honey-bottle side indicator: flash the matching jar when the honey band worsens ---
+        //I think i like outsourcing too much
         updateHoneyIndicator(score);
     }
 
     /**
-     * Spawns/despawns toward target count. Despawning bees are only marked here,
-     * not removed until they leave the screen (handled by reapOffScreenBees).
-     * Returns true if the bee list membership changed.
+     * Spawns bees if needed. Bees to despawn are only flagged here -> reapOffScreenBees() does the rest
+     * @return true if the population changed
      */
-    private boolean adjustPopulation(int targetCount, double centerX, double centerY,
-                                     double ringX, double ringY, boolean nestBoost) {
+    private boolean adjustPopulation(int targetCount, double centerX, double centerY, double ringX, double ringY, boolean nestBoost) {
         boolean changed = false;
-        int spawnPerFrame = nestBoost ? 4 : 1; // nest stir-ups regather fast
+        int spawnPerFrame = nestBoost ? 4 : 1; //bees reappear faster if you stirred up the nest. Not sure if this is actually doing much though
 
+        //synchronize both lists under the lock because otherwise lint wont stop screaming at me for some reason
         synchronized (beesLock) {
             int active = bees.size() - despawning.size();
 
@@ -349,7 +352,8 @@ public class BeeManager {
                 int toSpawn = Math.min(spawnPerFrame, targetCount - active);
                 for (int i = 0; i < toSpawn; i++) {
                     SingleBee bee = new SingleBee(screenW, screenH, maxVisualOverhead);
-                    // Spawn off-screen on the ring so the bee flies in from the edge.
+                    // Spawn off-screen on the ring so the bee flies in from the edge ->
+                    //didnt end up working due to canvas issues but at least bees appear at the edges consistently
                     double angle = random.nextDouble() * Math.PI * 2;
                     bee.setPosition(centerX + Math.cos(angle) * ringX,
                             centerY + Math.sin(angle) * ringY);
@@ -361,7 +365,8 @@ public class BeeManager {
                 for (SingleBee bee : bees) {
                     if (toRemove <= 0) break;
                     if (!despawning.contains(bee)) {
-                        despawning.add(bee); // gets an off-screen goal, reaped once it leaves the screen
+                        despawning.add(bee); // gets an off-screen goal, again the bees can no longer fly off screen
+                        // but the transparacy fixes it part way at least
                         toRemove--;
                     }
                 }
@@ -370,23 +375,24 @@ public class BeeManager {
         return changed;
     }
 
-    /** Removes the views of despawning bees that have now left the screen. */
-    private void reapOffScreenBees(List<SingleBee> snapshot) {
-        List<SingleBee> reaped = null;
+    /** Removes the icons of despawning bees that have now left the screen.
+     * */
+    private void killOffScreenBees(List<SingleBee> snapshot) { //"kill" feels a little brutal, rename if you prefer @Samuel
+        List<SingleBee> killed = null;
         synchronized (beesLock) {
             for (SingleBee bee : snapshot) {
                 if (despawning.contains(bee) && bee.isOffScreen()) {
-                    if (reaped == null) reaped = new ArrayList<>();
-                    reaped.add(bee);
+                    if (killed == null) killed = new ArrayList<>();
+                    killed.add(bee);
                 }
             }
-            if (reaped != null) {
-                bees.removeAll(reaped);
-                despawning.removeAll(reaped);
+            if (killed != null) {
+                bees.removeAll(killed);
+                despawning.removeAll(killed);
             }
         }
-        if (reaped != null) {
-            final List<SingleBee> toRemove = reaped;
+        if (killed != null) {
+            final List<SingleBee> toRemove = killed;
             mainHandler.post(() -> {
                 for (SingleBee bee : toRemove) {
                     View view = beeViews.remove(bee);
@@ -394,7 +400,7 @@ public class BeeManager {
                         try {
                             windowManager.removeView(view);
                         } catch (Exception e) {
-                            Log.e(TAG, "Error removing reaped bee view", e);
+                            Log.e(TAG, "Error removing killed bee view", e);//i pray this never matters
                         }
                     }
                 }
@@ -403,7 +409,7 @@ public class BeeManager {
         }
     }
 
-    private void refreshNeighbourSnapshots() {
+    private void refreshNeighbourSnapshots() {//Outsourced duplicate codebase by AI
         synchronized (beesLock) {
             List<SingleBee> copy = new ArrayList<>(bees);
             for (SingleBee bee : bees) {
@@ -412,11 +418,11 @@ public class BeeManager {
         }
     }
 
-    private void setOffScreenGoal(SingleBee bee, double centerX, double centerY, double ringX, double ringY) {
+    private void setOffScreenGoal(SingleBee bee, double centerX, double centerY, double ringX, double ringY) {//Outsourced duplicate codebase by AI
         double dx = bee.getPosition(dim.WIDTH) - centerX;
         double dy = bee.getPosition(dim.HEIGHT) - centerY;
         double len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 1) {//to stop bees from getting stuck in the center
+        if (len < 1) {//to stop bees from getting stuck right in the center
             double a = random.nextDouble() * Math.PI * 2;
             dx = Math.cos(a);
             dy = Math.sin(a);
@@ -430,6 +436,7 @@ public class BeeManager {
     /**
      * Per-bee alpha based on distance to the nearest screen edge: fully opaque inside, fading to
      * fully transparent as the bee touches the edge. Uses the bee view centre (views are 100px).
+     * AI-Generated.
      */
     private float clampedEdgeAlpha(int x, int y) {
         double cx = x + 50.0;
@@ -495,7 +502,7 @@ public class BeeManager {
         });
     }
 
-    /** Lightweight per-frame render record (position + edge alpha), built on the sim thread. */
+    /** per frame recordm. Built on the sim thread. */
     private static final class BeeFrame {
         final SingleBee bee;
         final int x;
@@ -507,31 +514,24 @@ public class BeeManager {
             this.x = x;
             this.y = y;
             this.alpha = alpha;
-        }
+        }//Ive never written a class this java, ever.
     }
 
-    // --- Shake/swipe flee mechanic (unifies both gestures) ---------------------------------
 
-    /** Which honey band a score sits in: 1 full, 2 medium, 3 low (more unproductive = less honey). */
-    private int honeyBandForScore(int score) {
-        if (score < SLOSH_START) return 1; // plenty of honey left
-        if (score < ANGER_START) return 2; // running low
-        return 3;                           // nearly empty
-    }
-
-    /** Flash the matching honey jar at the screen side when the band worsens as the score rises. */
     private void updateHoneyIndicator(int score) {
         if (score <= AMBIENT_SCORE) {
             lastHoneyBand = 0;
             return;
         }
-        int band = honeyBandForScore(score);
+        int band = (score < SLOSH_START) ? 1 : (score < ANGER_START) ? 2 : 3;//1 full, 3 empty
+
         if (band > lastHoneyBand) {
             showHoneyBottle(band);
         }
         lastHoneyBand = band;
     }
 
+    //Update Honey bottle visuals, partially AI generated
     private void showHoneyBottle(int band) {
         final int resId = band == 1 ? R.drawable.honey_bottle_full
                 : band == 2 ? R.drawable.honey_bottle_medium
@@ -570,9 +570,10 @@ public class BeeManager {
         final View v = honeyBottleView;
         if (v == null) return;
         v.animate().alpha(0f).setDuration(300).withEndAction(this::removeHoneyBottleView).start();
-    };
+    };//Outsourced duplicate codebase by AI
 
-    private void removeHoneyBottleView() {
+
+    private void removeHoneyBottleView() {//Outsourced duplicate codebase by AI
         if (honeyBottleView != null) {
             try {
                 windowManager.removeView(honeyBottleView);
@@ -583,8 +584,9 @@ public class BeeManager {
         }
     }
 
-    /** Goal that pushes a fleeing bee onto the nearest screen edge (radial for shake, fixed for swipe). */
-    private void setFleeGoal(SingleBee bee, double centerX, double centerY) {
+
+    private void setFleeGoal(SingleBee bee, double centerX, double centerY) {//fleeing works better than chasing because bees should go off screen
+        //roughly equally spread and this was a nightmare with just the goal set mechanic
         double dx, dy;
         if (fleeRadial) {
             dx = bee.getPosX() - centerX;
@@ -605,13 +607,13 @@ public class BeeManager {
         bee.setGoal(centerX + dx * (screenW * 0.5), centerY + dy * (screenH * 0.5));
     }
 
-    /** Linger long at low score, short when severe. */
+
     private long fleeLingerForScore(int score) {
         double t = clamp01((score - AMBIENT_SCORE) / (double) (SCORE_MAX - AMBIENT_SCORE));
-        return (long) (FLEE_LINGER_MAX_MS - t * (FLEE_LINGER_MAX_MS - FLEE_LINGER_MIN_MS));
+        return (long) (FLEE_LINGER_MAX_MS - t * (FLEE_LINGER_MAX_MS - FLEE_LINGER_MIN_MS));//longer at low score
     }
 
-    /** Shared core of swipe + shake: kick every bee outward and hold the flee state for a while. */
+    /** Shared core of swipe + shake: kick every bee outward and hold the flee state for a while. Outsourced duplicate codebase by AI*/
     private void flee(double dirX, double dirY, boolean radial, int score) {
         long now = System.currentTimeMillis();
         fleeRadial = radial;
@@ -644,12 +646,12 @@ public class BeeManager {
             }
         }
         if (score >= NEST_SCORE) {
-            // Stirred-up nest: they come back fast and angry (short linger + angriness boost).
+            //angriness boosted when trying to shake away even slightly angry bees
             nestBoostEndTime = now + NEST_BOOST_MS;
         }
     }
 
-    private void onShake() {
+    private void onShake() {//Outsourced duplicate codebase by AI
         ProductivityState state = ProductivityEngine.getInstance().getState().getValue();
         int score = state != null ? state.getScore() : 0;
         if (score <= AMBIENT_SCORE) return; // no bees to scatter at this stage
@@ -657,8 +659,13 @@ public class BeeManager {
         Log.d(TAG, "Shake scattered swarm (score=" + score + ")");
     }
 
-    // --- Swipe-to-disperse: a full-screen touch layer that is only present at high severity. ---
-    @SuppressLint("ClickableViewAccessibility")
+
+    /** Swipe overlay for high severities that allows the user to interact with the swarm directly.
+     * this whole thing was supposed to be an intermediary solution until we get actual
+     * onTouchListeners implemented but as it turns out im too dumb to do that- so this will stay
+      * @param show so we can also initalize the layer without it being visible
+     */
+    @SuppressLint("ClickableViewAccessibility")//whatever lint was on about here
     private void setSwipeLayer(boolean show) {
         mainHandler.post(() -> {
             if (show && swipeLayer == null) {
@@ -672,7 +679,7 @@ public class BeeManager {
                                 onSwipe(velocityX, velocityY);
                                 return true;
                             }
-                        });
+                        });//Made with Help of AI
                 layer.setOnTouchListener((v, event) -> detector.onTouchEvent(event));
 
                 WindowManager.LayoutParams params = new WindowManager.LayoutParams(
@@ -698,7 +705,7 @@ public class BeeManager {
         });
     }
 
-    private void onSwipe(float velocityX, float velocityY) {
+    private void onSwipe(float velocityX, float velocityY) {//Outsourced for readability
         double len = Math.sqrt((double) velocityX * velocityX + (double) velocityY * velocityY);
         if (len < 1) return;
         double nx = velocityX / len;
@@ -706,12 +713,12 @@ public class BeeManager {
 
         ProductivityState state = ProductivityEngine.getInstance().getState().getValue();
         int score = state != null ? state.getScore() : 0;
-        // Same flee path as shake: push bees to the edge and hold them there (no despawn churn).
+        //same as shake but dont kill bees
         flee(nx, ny, false, score);
         Log.d(TAG, "Swipe dispersed swarm (score=" + score + ")");
     }
 
-    /** Hard teardown (service destroy / level 0). Removes every overlay window immediately. */
+    /**This method hard shutdowns everything. Writing it was a good idea*/
     public void removeAllBees() {
         isSimulationRunning = false;
         swipeLayerDesired = false; // keep the desired-state flag in sync with the torn-down layer
@@ -744,6 +751,7 @@ public class BeeManager {
         }
     }
 
+    //Math helpers
     private static double clamp01(double v) {
         if (v < 0) return 0;
         if (v > 1) return 1;
@@ -754,8 +762,8 @@ public class BeeManager {
         double f = v - Math.floor(v);
         return f;
     }
-
-    /** Maps a 0..1 value into the 0.05..0.95 band so cover goals stay on-screen. */
+    
+    //0...1      to      0.05...0.95
     private static double mapUnit(double u) {
         return 0.05 + 0.90 * u;
     }
