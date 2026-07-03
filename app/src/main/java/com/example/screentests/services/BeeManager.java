@@ -548,13 +548,12 @@ public class BeeManager {
             iv.setAlpha(0f);
 
             WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    200, 200,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                     PixelFormat.TRANSLUCENT);
             params.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
-            params.x = 16;
+            params.x = 8; // Move closer to the right edge
 
             try {
                 windowManager.addView(iv, params);
