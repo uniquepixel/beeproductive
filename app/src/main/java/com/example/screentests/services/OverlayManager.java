@@ -40,9 +40,9 @@ import com.example.screentests.chat.QueenMood;
 import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
 
-public class OverlayService extends Service {
+public class OverlayManager extends Service {
     //Variables extracted by AI
-    private static final String TAG = "OverlayService";
+    private static final String TAG = "OverlayManager";
     private static final String CHANNEL_ID = "OverlayServiceChannel";
     private static final int NOTIFICATION_ID = 1;
 

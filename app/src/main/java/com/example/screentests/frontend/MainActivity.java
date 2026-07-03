@@ -12,7 +12,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.example.screentests.R;
 import com.example.screentests.engine.ProductivityEngine;
 import com.example.screentests.engine.ProductivityState;
-import com.example.screentests.services.OverlayService;
+import com.example.screentests.services.OverlayManager;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startOverlayService() {
-        Intent intent = new Intent(this, OverlayService.class);
+        Intent intent = new Intent(this, OverlayManager.class);
         androidx.core.content.ContextCompat.startForegroundService(this, intent);
     }
 
@@ -95,6 +95,6 @@ public class MainActivity extends AppCompatActivity {
         if (currentLevel != lastLevel) {
             lastLevel = currentLevel;
         }
-        // Intervention and Unknown App Detection are handled globally by OverlayService.
+        // Intervention and Unknown App Detection are handled globally by OverlayManager.
     }
 }

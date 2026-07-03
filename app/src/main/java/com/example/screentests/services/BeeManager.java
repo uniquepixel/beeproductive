@@ -136,7 +136,7 @@ public class BeeManager {
     }
 
     /**
-     * Kept for the OverlayService contract. Bee count is now derived from the score, so this
+     * Kept for the OverlayManager contract. Bee count is now derived from the score, so this
      * just ensures the score-driven simulation is running (-> no destructive repopulate -> race cond.!)
      */
     public void initBeeSwarm(int level) {
@@ -183,7 +183,7 @@ public class BeeManager {
 
                 killOffScreenBees(snapshot);
 
-                //stop condition, OverlayService restarts if necessary
+                //stop condition, OverlayManager restarts if necessary
                 if (score <= AMBIENT_SCORE && !intervention) {
                     boolean empty;
                     synchronized (beesLock) {
@@ -589,8 +589,8 @@ public class BeeManager {
         //roughly equally spread and this was a nightmare with just the goal set mechanic
         double dx, dy;
         if (fleeRadial) {
-            dx = bee.getPosX() - centerX;
-            dy = bee.getPosY() - centerY;
+            dx = bee.getPosition(dim.WIDTH) - centerX;
+            dy = bee.getPosition(dim.HEIGHT) - centerY;
             double len = Math.sqrt(dx * dx + dy * dy);
             if (len < 1) {
                 double a = random.nextDouble() * Math.PI * 2;
@@ -627,8 +627,8 @@ public class BeeManager {
             for (SingleBee bee : bees) {
                 double odx, ody;
                 if (radial) {
-                    odx = bee.getPosX() - centerX;
-                    ody = bee.getPosY() - centerY;
+                    odx = bee.getPosition(dim.WIDTH) - centerX;
+                    ody = bee.getPosition(dim.HEIGHT) - centerY;
                     double len = Math.sqrt(odx * odx + ody * ody);
                     if (len < 1) {
                         double a = random.nextDouble() * Math.PI * 2;
@@ -642,7 +642,7 @@ public class BeeManager {
                     odx = dirX;
                     ody = dirY;
                 }
-                bee.applyImpulse(odx * SWIPE_IMPULSE, ody * SWIPE_IMPULSE);
+                bee.applyDelta_v(odx * SWIPE_IMPULSE, ody * SWIPE_IMPULSE);
             }
         }
         if (score >= NEST_SCORE) {

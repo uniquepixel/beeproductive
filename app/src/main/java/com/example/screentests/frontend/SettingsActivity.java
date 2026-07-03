@@ -10,7 +10,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.screentests.R;
 import com.example.screentests.engine.ProductivityEngine;
-import com.example.screentests.services.OverlayService;
+import com.example.screentests.services.OverlayManager;
 import com.google.android.material.slider.Slider;
 
 public class SettingsActivity extends AppCompatActivity {
@@ -52,7 +52,7 @@ public class SettingsActivity extends AppCompatActivity {
         backButton.setOnClickListener(v -> finish());
 
         findViewById(R.id.debugTriggerInterventionButton).setOnClickListener(v -> {
-            startService(new Intent(SettingsActivity.this, OverlayService.class));
+            startService(new Intent(SettingsActivity.this, OverlayManager.class));
             ProductivityEngine.getInstance().debugTriggerUI(4, true);
         });
 

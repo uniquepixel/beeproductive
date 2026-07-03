@@ -52,7 +52,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
     }
 
     private void startOverlayService() {
-        Intent intent = new Intent(this, OverlayService.class);
+        Intent intent = new Intent(this, OverlayManager.class);
         ContextCompat.startForegroundService(this, intent);
     }
 
