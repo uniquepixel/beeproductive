@@ -1,4 +1,6 @@
+//This class is mostly for information passing and datawrapping
 package com.example.screentests.chat;
+
 
 import com.example.screentests.network.ChatRequest;
 

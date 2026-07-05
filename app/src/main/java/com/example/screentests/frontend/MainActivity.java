@@ -95,11 +95,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateUI(ProductivityState state) {
-        // Unproductivity Level (0 - 4)
         int currentLevel = state.getLevel();
         if (currentLevel != lastLevel) {
             lastLevel = currentLevel;
         }
-        // Intervention and Unknown App Detection are handled globally by OverlayManager.
     }
 }

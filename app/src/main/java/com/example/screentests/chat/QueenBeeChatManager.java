@@ -1,3 +1,4 @@
+//This class is mostly AI generated
 package com.example.screentests.chat;
 
 import android.content.Context;

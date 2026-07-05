@@ -23,11 +23,8 @@ public class SettingsActivity extends AppCompatActivity {
 
         ProductivityEngine engine = ProductivityEngine.getInstance();
 
-        // --- Aggression Slider (Score Interval) ---
-        // Range: 1s to 60s. Higher slider value = faster score increase (shorter interval).
-        // Slider value is "seconds per tick" in reverse logic or just map it.
-        // Let's map 1.0 -> 60s (slow) and 60.0 -> 1s (fast).
-        Slider aggressionSlider = findViewById(R.id.aggressionSlider);
+
+        Slider aggressionSlider = findViewById(R.id.aggressionSlider);//Agression: how fast the score increases, is interval length in s/tick -> lower value = higher increase
         float currentIntervalSec = engine.getScoreIntervalMillis() / 1000f;
         float aggressionValue = 61f - currentIntervalSec;
         aggressionSlider.setValue(Math.max(1f, Math.min(60f, aggressionValue)));
@@ -39,8 +36,7 @@ public class SettingsActivity extends AppCompatActivity {
             }
         });
 
-        // --- Swarm Size Slider ---
-        Slider sizeSlider = findViewById(R.id.sizeSlider);
+        Slider sizeSlider = findViewById(R.id.sizeSlider);//Size: max #bees
         sizeSlider.setValue((float) engine.getMaxBees());
         sizeSlider.addOnChangeListener((slider, value, fromUser) -> {
             if (fromUser) {
