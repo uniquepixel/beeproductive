@@ -42,10 +42,13 @@ public class AppCategorizationDialog extends DialogFragment {
         }
     }
 
+    // builds the user interface for app categorizations,
+    // listeners for un-/productive button, slider, save button
+    // handles saving logic (for categorization, to the database)
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.dialog_app_categorization, container, false);
+        View view = inflater.inflate(R.layout.dialog_app_categorization, container, false); // -> help by AI
 
         TextView packageLabel = view.findViewById(R.id.packageNameLabel);
         packageLabel.setText("Package: " + packageName);
@@ -68,6 +71,7 @@ public class AppCategorizationDialog extends DialogFragment {
         return view;
     }
 
+    // adjusts screen size before showing the screen
     @Override
     public void onStart() {
         super.onStart();

@@ -22,6 +22,8 @@ public class TrackerAccessibilityService extends AccessibilityService {
     private static final String TAG = "TrackerService";
     private static TrackerAccessibilityService instance;
 
+    // Initializes service, telling android exactly what we want to track
+    // (for example - TYPE_WINDOW_ST-usw.: service listens to changed states/apps)
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
@@ -31,10 +33,12 @@ public class TrackerAccessibilityService extends AccessibilityService {
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
-        info.flags = 0; // AccessibilityServiceInfo.FLAG_DEFAULT does not exist. Using 0 for now.
+        info.flags = 0; // before: AccessibilityServiceInfo.FLAG_DEFAULT. Now using 0.
         this.setServiceInfo(info);
     }
 
+    // triggers tracking logic
+    // starts the OverlayManager, if app has changed and is not systemUI or BeeProductive.
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -51,6 +55,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         }
     }
 
+    // starts the OverlayManager if called
     private void startOverlayService() {
         Intent intent = new Intent(this, OverlayManager.class);
         ContextCompat.startForegroundService(this, intent);
@@ -81,7 +86,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
                 @Override
-                public void onSuccess(@NonNull ScreenshotResult screenshotResult) {
+                public void onSuccess(@NonNull ScreenshotResult screenshotResult) { // convert buffer to Bitmap, compress to JPEG, encode to base64 Str
                     Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshotResult.getHardwareBuffer(), screenshotResult.getColorSpace());
                     if (bitmap != null) {
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -104,7 +109,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         }
     }
 
-    // Forcefully kicks the user out of the current app by simulating the HOME button
+    // kicks the user out of an app by simulating the HOME button
     public void enforceLockout() {
         performGlobalAction(GLOBAL_ACTION_HOME);
     }
