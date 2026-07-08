@@ -49,6 +49,9 @@ public class TrackerAccessibilityService extends AccessibilityService {
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
         info.flags = 0; // before: AccessibilityServiceInfo.FLAG_DEFAULT. Now using 0.
         this.setServiceInfo(info);
+
+        // AI-added: warm the soft-keyboard package cache so IME window events are cheap to filter.
+        ImeRegistry.refresh(this);
     }
 
     // triggers tracking logic
@@ -60,8 +63,13 @@ public class TrackerAccessibilityService extends AccessibilityService {
                 String packageName = event.getPackageName().toString();
                 Log.d(TAG, "App changed: " + packageName);
                 
-                // Exclude system UI or self
-                if (!packageName.equals("com.android.systemui") && !packageName.equals(getPackageName())) {
+                // Exclude system UI, self, and soft keyboards.
+                // AI-changed: opening the soft keyboard (e.g. Samsung's honeyboard on Galaxy
+                // devices) fires a window-state event with the IME's package name. Treating it
+                // as an app switch popped the categorization overlay over the intervention chat
+                // and stole focus, closing the text box as soon as the user started typing.
+                if (!packageName.equals("com.android.systemui") && !packageName.equals(getPackageName())
+                        && !ImeRegistry.isImePackage(this, packageName)) {
                     ProductivityEngine engine = ProductivityEngine.getInstance();
                     engine.onAppChanged(packageName);
                     // AI-changed: this used to call startForegroundService() on EVERY window

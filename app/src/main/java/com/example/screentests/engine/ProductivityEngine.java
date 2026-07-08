@@ -11,6 +11,7 @@ import com.example.screentests.database.ActivityLog;
 import com.example.screentests.network.OpenRouterClient;
 import com.example.screentests.chat.ChatSession;
 import com.example.screentests.chat.QueenBeeChatManager;
+import com.example.screentests.services.ImeRegistry;
 import com.example.screentests.services.TrackerAccessibilityService;
 
 import java.util.concurrent.Executors;
@@ -265,7 +266,14 @@ public class ProductivityEngine {
     private boolean isSystemNonApp(String packageName) {
         return packageName.contains("netlauncher")
                 || packageName.contains("launcher")
-                || packageName.equals("com.android.systemui");
+                || packageName.equals("com.android.systemui")
+                // AI-changed: the doc above always promised keyboards land here, but nothing
+                // matched one — on real devices the IME (e.g. Samsung's honeyboard) ended up
+                // UNKNOWN, and the categorization overlay killed the intervention text box.
+                // The tracker now filters IME events at the source; this is the backstop so a
+                // keyboard package can never be scored or prompted for categorization.
+                || (applicationContext != null
+                        && ImeRegistry.isImePackage(applicationContext, packageName));
     }
 
     /**
