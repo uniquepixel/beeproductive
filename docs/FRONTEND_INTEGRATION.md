@@ -196,12 +196,12 @@ Get the singleton with `QueenBeeChatManager.getInstance()`.
 
 | Method | What it does |
 |---|---|
-| `ChatSession startSession(int score, StartCallback cb)` | Starts a new chat and kicks off the Queen's opening line. **The backend calls this automatically at score 100** — you normally don't. Returns the session immediately; `cb.onReady(session, openingText)` fires when the greeting is ready. |
+| `ChatSession startSession(int score, String packageName, StartCallback cb)` | Starts a new chat and kicks off the Queen's opening line. The Queen first takes + analyses a **fresh screenshot** as her evidence (falling back to the newest stored one). **The backend calls this automatically at score 100** — you normally don't. Returns the session immediately; `cb.onReady(session, openingText)` fires when the greeting is ready. |
 | `void sendMessage(String sessionId, String userText, ChatCallback cb)` | Sends a user message; `cb.onReply(text)` returns the Queen's response. |
 | `List<ChatMessage> getHistory(String sessionId)` | The conversation so far (user + Queen turns). Empty list for an unknown id. |
 | `ChatSession getSession(String sessionId)` | The raw session object (id, `createdAt`, `scoreSnapshot`). |
 | `void endSession(String sessionId)` | Forgets the conversation. |
-| `void getLastScreenshot(LastScreenshotCallback cb)` | Returns the latest `ActivityLog` (image + metadata). **Callback is off the main thread.** |
+| `void getLastScreenshot(LastScreenshotCallback cb)` | Returns the latest `ActivityLog` (image + metadata). **Callback is off the main thread.** Kept for compatibility — the intervention overlay now receives the screenshot through `getUiState()` instead (see QUEENBEE_UI_STATE_INTEGRATION.md). |
 
 Callback interfaces:
 
@@ -222,10 +222,9 @@ interface LastScreenshotCallback { void onResult(ActivityLog log); }  // log may
   is gone. Don't rely on history surviving a restart.
 - **`getQueenBeeSessionId()` can be `null`** — only use it when
   `isShowQueenBeeChat()` is `true`.
-- **The "convince the Queen" win condition isn't implemented yet.** Right now the
-  Queen just debates and never formally concedes — there's a `TODO` in the backend
-  for it. So don't build UI that waits for a "you won" signal; that signal doesn't
-  exist yet.
+- **The "convince the Queen" win condition IS implemented now.** The Queen ends the
+  debate with a hidden `[DECISION: REFILL]` / `[DECISION: KICK]` token that arrives
+  as `QueenBeeUiState.decision` — see QUEENBEE_UI_STATE_INTEGRATION.md.
 - **No API key = errors.** The chat needs `OPENROUTER_API_KEY` set in
   `local.properties` (backend setup). If it's missing you'll get `onError`
   callbacks — show a friendly message rather than crashing.

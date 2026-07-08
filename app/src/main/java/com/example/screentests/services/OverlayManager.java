@@ -59,9 +59,19 @@ public class OverlayManager extends Service {
 
     private static final long KICK_BLOCK_MS = 5 * 60 * 1000L;//App block after intervention: 5min
 
+    // How long the Queen's final line + verdict banner stay on screen before the end-game
+    // (honey refill reset / app block) actually runs. Long enough to read her reasoning.
+    private static final long REFILL_LINGER_MS = 6000L;
+    private static final long KICK_LINGER_MS = 4500L;
+
     // Live references to the intervention views while it is showing (null otherwise).
     private TextView chatDisplay;
     private ImageView queenIcon;
+    private ImageView screenshotView;
+    private TextView screenshotCaptionView;
+    private View decisionBanner;
+    private TextView decisionBannerText;
+    private boolean screenshotShown = false;
     private String activeSessionId;
     private String activePackageName = "";
     private QueenBeeUiState.Decision lastDecision = QueenBeeUiState.Decision.NONE;
@@ -157,8 +167,12 @@ public class OverlayManager extends Service {
             // Adjust soft input mode to push content up
             params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
 
-            // Initialize UI components (chatDisplay + queenIcon are kept as fields for the observer).
-            ImageView screenshotView = interventionOverlay.findViewById(R.id.lastActivityScreenshot);
+            // Initialize UI components (kept as fields for the observer).
+            // Partially AI generated / Modified by AI
+            screenshotView = interventionOverlay.findViewById(R.id.lastActivityScreenshot);
+            screenshotCaptionView = interventionOverlay.findViewById(R.id.screenshotCaption);
+            decisionBanner = interventionOverlay.findViewById(R.id.decisionBanner);
+            decisionBannerText = interventionOverlay.findViewById(R.id.decisionBannerText);
             View chatContainer = interventionOverlay.findViewById(R.id.chatContainer);
             chatDisplay = interventionOverlay.findViewById(R.id.chatMessageDisplay);
             EditText chatInput = interventionOverlay.findViewById(R.id.chatEditText);
@@ -167,20 +181,10 @@ public class OverlayManager extends Service {
 
             activeSessionId = sessionId;
             lastDecision = QueenBeeUiState.Decision.NONE;
-
-            // The Queen confronts the user with the screenshot taken earlier.
-            screenshotView.setVisibility(View.VISIBLE);
-            QueenBeeChatManager.getInstance().getLastScreenshot(log -> {
-                if (log != null && log.screenshotBase64 != null) {
-                    try {
-                        byte[] decodedString = Base64.decode(log.screenshotBase64, Base64.DEFAULT);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
-                        mainHandler.post(() -> screenshotView.setImageBitmap(bitmap));
-                    } catch (Exception e) {
-                        Log.e(TAG, "Failed to decode screenshot", e);
-                    }
-                }
-            });
+            // The screenshot now arrives through the QueenBeeUiState LiveData — the Queen decides
+            // when to hold it up (renderQueenUiState), so it starts hidden.
+            screenshotShown = false;
+            screenshotView.setVisibility(View.GONE);
 
             //Send = hand text to manager -> back to uiState
             Runnable sendAction = () -> {
@@ -214,6 +218,11 @@ public class OverlayManager extends Service {
             stopTalkingAnimation();
             chatDisplay = null;
             queenIcon = null;
+            screenshotView = null;
+            screenshotCaptionView = null;
+            decisionBanner = null;
+            decisionBannerText = null;
+            screenshotShown = false;
             activeSessionId = null;
             lastDecision = QueenBeeUiState.Decision.NONE;//does this need to be reset?
             if (interventionOverlay != null) {
@@ -245,12 +254,20 @@ public class OverlayManager extends Service {
         }
     }
 
-    private void renderQueenUiState(QueenBeeUiState s) {//For last line container, mood, final descision
+    //For last line container, mood, screenshot evidence, final descision
+    //Partially AI generated / Modified by AI
+    private void renderQueenUiState(QueenBeeUiState s) {
         if (s == null || chatDisplay == null || queenIcon == null) return;//no display
 
         //Text container
         if (s.text != null && !s.text.isEmpty() && !s.text.equals(chatDisplay.getText().toString())) {
             crossfadeText(chatDisplay, s.text);
+        }
+
+        //Screenshot evidence: shown the moment the Queen holds it up, then stays for the session.
+        if (s.showScreenshot && !screenshotShown && s.screenshotBase64 != null) {
+            screenshotShown = true;
+            showEvidenceScreenshot(s.screenshotBase64, s.screenshotCaption);
         }
 
         //The bee itself
@@ -267,12 +284,67 @@ public class OverlayManager extends Service {
         //Final decision
         if (s.decision != QueenBeeUiState.Decision.NONE && lastDecision == QueenBeeUiState.Decision.NONE) {
             lastDecision = s.decision;
+            showDecisionBanner(s.decision == QueenBeeUiState.Decision.REFILL);
             if (s.decision == QueenBeeUiState.Decision.REFILL) {
                 playHoneyRefillThenReset();
             } else {
                 playKickThenBlock();
             }
         }
+    }
+
+    /**
+     * Decodes the base64 evidence screenshot off the main thread and fades it (plus its caption)
+     * into the overlay. AI generated
+     */
+    private void showEvidenceScreenshot(String base64, String caption) {
+        new Thread(() -> {
+            Bitmap bitmap = null;
+            try {
+                byte[] decoded = Base64.decode(base64, Base64.DEFAULT);
+                bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to decode evidence screenshot", e);
+            }
+            final Bitmap result = bitmap;
+            if (result == null) return;
+            mainHandler.post(() -> {
+                ImageView shot = screenshotView;
+                if (shot == null) return; // overlay closed meanwhile
+                shot.setImageBitmap(result);
+                shot.setAlpha(0f);
+                shot.setVisibility(View.VISIBLE);
+                shot.animate().alpha(0.8f).setDuration(400).start();
+                TextView cap = screenshotCaptionView;
+                if (cap != null && caption != null && !caption.isEmpty()) {
+                    cap.setText("Caught in the act: " + caption);
+                    cap.setAlpha(0f);
+                    cap.setVisibility(View.VISIBLE);
+                    cap.animate().alpha(1f).setDuration(400).start();
+                }
+            });
+        }).start();
+    }
+
+    /**
+     * Pops the verdict banner in so the user immediately sees that the Queen has decided.
+     * AI generated
+     */
+    private void showDecisionBanner(boolean refill) {
+        View banner = decisionBanner;
+        TextView text = decisionBannerText;
+        if (banner == null || text == null) return;
+        text.setText(refill ? "🍯 Honey refilled!" : "🚫 The Queen says: out!");
+        if (banner instanceof com.google.android.material.card.MaterialCardView) {
+            ((com.google.android.material.card.MaterialCardView) banner).setCardBackgroundColor(
+                    getColor(refill ? R.color.decision_refill : R.color.decision_kick));
+        }
+        banner.setScaleX(0.6f);
+        banner.setScaleY(0.6f);
+        banner.setAlpha(0f);
+        banner.setVisibility(View.VISIBLE);
+        banner.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(350)
+                .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
     }
 
 
@@ -329,6 +401,11 @@ public class OverlayManager extends Service {
         }
     }
 
+    /**
+     * Refill verdict: the Queen presents the honey, the pot fills up, and her final line stays
+     * readable for {@link #REFILL_LINGER_MS} before the score resets and the overlay closes.
+     * Partially AI generated / Modified by AI
+     */
     private void playHoneyRefillThenReset() {
         stopTalkingAnimation();
         if (queenIcon != null) queenIcon.setImageResource(moodToDrawable(QueenMood.SHOWING_HONEY));
@@ -337,21 +414,24 @@ public class OverlayManager extends Service {
             final int res = frames[i];
             mainHandler.postDelayed(() -> {
                 if (queenIcon != null) queenIcon.setImageResource(res);
-            }, 300L + i * 350L);
+            }, 900L + i * 500L);
         }
         mainHandler.postDelayed(
                 () -> ProductivityEngine.getInstance().resetScore(),
-                300L + frames.length * 350L + 250L);
+                REFILL_LINGER_MS);
     }
 
-    /** Kick verdict: show the Queen's outrage briefly, then block the app + send the user home. */
+    /**
+     * Kick verdict: show the Queen's outrage and her final line for {@link #KICK_LINGER_MS},
+     * then block the app + send the user home. Partially AI generated / Modified by AI
+     */
     private void playKickThenBlock() {
         stopTalkingAnimation();
         if (queenIcon != null) queenIcon.setImageResource(moodToDrawable(QueenMood.EXCLAIMING));
         final String pkg = activePackageName;
         mainHandler.postDelayed(
                 () -> ProductivityEngine.getInstance().blockApp(pkg, KICK_BLOCK_MS),
-                1200L);
+                KICK_LINGER_MS);
     }
 
 
