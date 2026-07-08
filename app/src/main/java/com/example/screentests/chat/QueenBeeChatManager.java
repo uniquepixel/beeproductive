@@ -256,10 +256,6 @@ public class QueenBeeChatManager {
         });
     }
 
-    /**
-     * Sends a user message in an existing session and returns the Queen's reply.
-     * Partially AI generated / Modified by AI
-     */
     public void sendMessage(String sessionId, String userText, ChatCallback cb) {
         ChatSession session = sessions.get(sessionId);
         if (session == null) {
@@ -286,15 +282,6 @@ public class QueenBeeChatManager {
         });
     }
 
-    // ------------------------------------------------------------------
-    // UI-state broadcasting + decision handling
-    // ------------------------------------------------------------------
-
-    /**
-     * Records the Queen's reply, parses & strips the hidden control tags (decision, mood,
-     * show-screenshot), and broadcasts the new UI state. Returns the text that should actually
-     * be shown (tags removed). Partially AI generated / Modified by AI
-     */
     private String handleQueenReply(String sessionId, ChatSession session, String rawText) {
         String text = rawText != null ? rawText : "";
         QueenBeeUiState.Decision decision = QueenBeeUiState.Decision.NONE;
@@ -341,7 +328,7 @@ public class QueenBeeChatManager {
      * Chooses the Queen's expression for a reply. A mood the model picked wins; otherwise we fall
      * back to the decision-driven defaults (and plain talking when neither applies), preserving the
      * original network-lifecycle behaviour for models that don't emit a mood tag.
-     * Partially AI generated / Modified by AI
+     * Modified by AI
      */
     private QueenMood pickMood(QueenMood modelMood, QueenBeeUiState.Decision decision) {
         if (modelMood != null) return modelMood;
@@ -365,7 +352,7 @@ public class QueenBeeChatManager {
         }
     }
 
-    //Partially AI generated / Modified by AI
+    //Partially AI generated
     private void handleQueenError(ChatSession session, String error) {
         postUi(session, QueenMood.ASKING, false, QueenBeeUiState.Speaker.QUEEN,
                 "The Queen is speechless: " + error, QueenBeeUiState.Decision.NONE);
@@ -374,7 +361,7 @@ public class QueenBeeChatManager {
     /**
      * Broadcasts a UI state. The screenshot evidence rides along on every post once the Queen has
      * revealed it, so the frontend can render it purely from this LiveData.
-     * Partially AI generated / Modified by AI
+     * Partially AI generated
      */
     private void postUi(ChatSession session, QueenMood mood, boolean thinking,
                         QueenBeeUiState.Speaker speaker, String text, QueenBeeUiState.Decision decision) {
@@ -387,7 +374,7 @@ public class QueenBeeChatManager {
 
     /**
      * Arms the hard 2-minute clock; on expiry with no decision the user is kicked out (fallback).
-     * Partially AI generated / Modified by AI
+     * Modified by AI
      */
     private void scheduleDecisionTimeout(String sessionId) {
         ScheduledFuture<?> f = timeoutExecutor.schedule(() -> {
@@ -427,9 +414,7 @@ public class QueenBeeChatManager {
         uiState.postValue(QueenBeeUiState.idle());
     }
 
-    // ------------------------------------------------------------------
-    // Screenshots
-    // ------------------------------------------------------------------
+
 
     /**
      * Retrieves the most recent screenshot together with its metadata
@@ -454,15 +439,13 @@ public class QueenBeeChatManager {
         });
     }
 
-    // ------------------------------------------------------------------
-    // Prompt building
-    // ------------------------------------------------------------------
+
 
     /**
      * Builds the Queen's system prompt from everything the backend knows: the score that triggered
      * the chat, the screenshot evidence held by the session (image + AI description), and the
      * recent activity-log summaries. Also defines the hidden control tags (mood, show-screenshot,
-     * decision) the frontend reacts to. Partially AI generated / Modified by AI
+     * decision) the frontend reacts to. System Prompt written with AI Assistance.
      */
     private String buildSystemPrompt(int score, ChatSession session, List<ActivityLog> recentLogs) {
         String evidenceSummary = session != null ? session.getEvidenceSummary() : null;
@@ -503,7 +486,7 @@ public class QueenBeeChatManager {
         }
         sb.append("\n");
 
-        // --- Rules of evidence -------------------------------------------------
+        //Evidence
         sb.append("RULES OF EVIDENCE (very important):\n")
           .append("- Only claim what the evidence above actually shows. NEVER invent or exaggerate ")
           .append("behaviour — do not say things like \"you have been scrolling endlessly\" if the ")
@@ -512,7 +495,7 @@ public class QueenBeeChatManager {
           .append("- If the evidence looks harmless, educational or even useful, acknowledge that ")
           .append("openly and be correspondingly lenient.\n\n");
 
-        // --- Showing the screenshot ---------------------------------------------
+        //Showing the screenshot
         if (hasScreenshot) {
             sb.append("SHOWING THE SCREENSHOT:\n")
               .append("In your FIRST reply you MUST present the screenshot to the user by including ")
@@ -522,7 +505,7 @@ public class QueenBeeChatManager {
               .append("mention or explain the tag itself in your prose.\n\n");
         }
 
-        // --- Mood tags ------------------------------------------------------------
+        //Mood tags
         sb.append("Begin EVERY reply with a hidden mood tag in the exact form [MOOD: X], where X is one ")
           .append("of: TALKING_1, TALKING_2, ASKING, EXCLAIMING, SAD, HAPPY, SHOWING_HONEY. Choose the ")
           .append("one that matches your tone in that reply — ASKING when you pose a question, ")
@@ -532,7 +515,7 @@ public class QueenBeeChatManager {
           .append("you grant a refill, NOT for showing evidence of unproductiveness. The mood tag is ")
           .append("a hidden control signal: never mention or explain it in your prose.\n\n");
 
-        // --- Verdict ------------------------------------------------------------
+        //Verdict
         sb.append("YOUR VERDICT:\n")
           .append("The user will try to convince you that it is okay that they were unproductive, or ")
           .append("ask for some extra time in their app. Engage with their arguments honestly. Be ")

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bee_soft_yellow"
@@ -56,14 +55,22 @@
         android:id="@+id/lastActivityScreenshot"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_margin="40dp"
-        android:alpha="0.8"
+        android:layout_margin="20dp"
+        android:alpha="1.0"
         android:scaleType="centerInside"
         android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/chatContainer"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintStart_toStartOf="@+id/guideline_vertical_center"
+        app:layout_constraintTop_toTopOf="parent"  />
+
+<!--     for lastActivityScreenshot-->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_vertical_center"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.5" />
 
     <TextView
         android:id="@+id/interventionTitle"
@@ -78,7 +85,6 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Caption for the screenshot evidence the Queen holds up (AI generated) -->
     <TextView
         android:id="@+id/screenshotCaption"
         android:layout_width="wrap_content"
@@ -118,7 +124,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:padding="20dp"
-            android:text="This is where Chat messages will go. Defend yourself!"
+            android:text="This is where Chat messages will go. Wait for the Queen Bee's reply!"
             android:textColor="@color/bee_dark"
             android:textSize="18sp" />
     </com.google.android.material.card.MaterialCardView>
