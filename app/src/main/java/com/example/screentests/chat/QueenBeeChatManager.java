@@ -11,7 +11,10 @@ import com.example.screentests.database.ActivityLog;
 import com.example.screentests.database.AppDatabase;
 import com.example.screentests.network.ChatRequest;
 import com.example.screentests.network.OpenRouterClient;
+import com.example.screentests.services.TrackerAccessibilityService;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -55,6 +58,13 @@ public class QueenBeeChatManager {
      */
     private static final Pattern MOOD_PATTERN =
             Pattern.compile("\\[\\s*MOOD\\s*:\\s*([A-Za-z0-9_]+)\\s*\\]", Pattern.CASE_INSENSITIVE);
+    /**
+     * Hidden tag the Queen emits when she holds up the screenshot evidence. Parsed then stripped;
+     * once seen, the screenshot stays visible for the rest of the session (carried to the frontend
+     * inside {@link QueenBeeUiState}).
+     */
+    private static final Pattern SHOW_SCREENSHOT_PATTERN =
+            Pattern.compile("\\[\\s*SHOW_SCREENSHOT\\s*\\]", Pattern.CASE_INSENSITIVE);
 
     private Context appContext;
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
@@ -64,9 +74,9 @@ public class QueenBeeChatManager {
     private final Set<String> decidedSessions = ConcurrentHashMap.newKeySet();
 
     /**
-     * The single source of truth for the chat UI (last line + Queen mood + decision). The overlay
-     * observes this; the backend can later post to it on the same basis. See
-     * docs/QUEENBEE_UI_STATE_INTEGRATION.md.
+     * The single source of truth for the chat UI (last line + Queen mood + decision + screenshot
+     * evidence). The overlay observes this; the backend can later post to it on the same basis.
+     * See docs/QUEENBEE_UI_STATE_INTEGRATION.md.
      */
     private final MutableLiveData<QueenBeeUiState> uiState = new MutableLiveData<>(QueenBeeUiState.idle());
 
@@ -117,22 +127,30 @@ public class QueenBeeChatManager {
      * Returns the session immediately (its id is usable right away); the
      * opening line arrives asynchronously via {@code cb.onReady}.
      *
+     * Before the Queen speaks she gathers her evidence: a FRESH screenshot is
+     * taken and analysed right now (falling back to the newest stored one if
+     * that fails), so what she shows the user is what they were actually doing.
+     *
+     * Partially AI generated / Modified by AI
+     *
      * @param currentScore the unproductivity score that triggered the chat
+     * @param packageName  the app the user was in when the score maxed out
      */
-    public ChatSession startSession(int currentScore, StartCallback cb) {
+    public ChatSession startSession(int currentScore, String packageName, StartCallback cb) {
         String sessionId = UUID.randomUUID().toString();
         // Provisional prompt (no logs yet) so the session is valid synchronously.
         ChatSession session = new ChatSession(
                 sessionId, System.currentTimeMillis(), currentScore,
-                buildSystemPrompt(currentScore, null));
+                buildSystemPrompt(currentScore, null, null));
         sessions.put(sessionId, session);
 
         // The Queen is composing her opening line; start the hard decision clock.
-        postUi(QueenMood.THINKING, true, QueenBeeUiState.Speaker.QUEEN, "", QueenBeeUiState.Decision.NONE);
+        postUi(session, QueenMood.THINKING, true, QueenBeeUiState.Speaker.QUEEN, "", QueenBeeUiState.Decision.NONE);
         scheduleDecisionTimeout(sessionId);
 
-        dbExecutor.execute(() -> {
-            // Enrich the system prompt with recent screen metadata, off the main thread.
+        // Step 1: secure the screenshot evidence (fresh capture, stored-log fallback).
+        gatherEvidence(session, packageName, () -> dbExecutor.execute(() -> {
+            // Step 2: enrich the system prompt with recent screen metadata, off the main thread.
             List<ActivityLog> recent = null;
             if (appContext != null) {
                 try {
@@ -142,13 +160,14 @@ public class QueenBeeChatManager {
                     Log.e(TAG, "Failed to load context logs", e);
                 }
             }
-            session.setSystemPrompt(buildSystemPrompt(currentScore, recent));
+            session.setSystemPrompt(buildSystemPrompt(currentScore, session, recent));
 
-            // Ask the Queen to open the conversation. The kickoff instruction is
+            // Step 3: ask the Queen to open the conversation. The kickoff instruction is
             // sent but NOT stored, so history starts with her greeting.
             List<ChatRequest.Message> request = session.snapshotMessages();
             request.add(new ChatRequest.Message("user",
-                    "Open the conversation: greet me as the Queen Bee and begin confronting me about my unproductivity."));
+                    "Open the conversation: greet me as the Queen Bee, present your screenshot "
+                            + "evidence of what I was doing, and confront me about my unproductivity."));
 
             OpenRouterClient.getInstance().chat(request, new OpenRouterClient.Callback() {
                 @Override
@@ -159,18 +178,84 @@ public class QueenBeeChatManager {
 
                 @Override
                 public void onError(String error) {
-                    handleQueenError(error);
+                    handleQueenError(session, error);
                     if (cb != null) cb.onError(error);
                 }
             });
-        });
+        }));
 
         return session;
     }
 
     /**
-     * Sends a user message in an existing session and returns the Queen's reply.
+     * The Queen "takes and analyses" her own evidence: captures a fresh screenshot through the
+     * accessibility service, has the vision model describe it, and persists it as an
+     * {@link ActivityLog}. Any failure along the way falls back to the newest stored log so the
+     * session can always continue. {@code then} runs exactly once, on any thread. AI generated
      */
+    private void gatherEvidence(ChatSession session, String packageName, Runnable then) {
+        TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
+        if (tracker == null) {
+            fallbackToStoredEvidence(session, then);
+            return;
+        }
+        tracker.takeScreenshotBase64(new TrackerAccessibilityService.ScreenshotCallback() {
+            @Override
+            public void onSuccess(String base64Image) {
+                OpenRouterClient.getInstance().analyzeScreenshot(base64Image, new OpenRouterClient.Callback() {
+                    @Override
+                    public void onSuccess(String summary) {
+                        session.setEvidence(base64Image, summary);
+                        // Persist like every other screenshot so it also feeds future context.
+                        if (appContext != null) {
+                            dbExecutor.execute(() -> {
+                                try {
+                                    ActivityLog log = new ActivityLog(System.currentTimeMillis(),
+                                            packageName, summary, base64Image);
+                                    AppDatabase.getInstance(appContext).activityLogDao().insertLog(log);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Failed to persist fresh evidence log", e);
+                                }
+                            });
+                        }
+                        then.run();
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        Log.w(TAG, "Evidence analysis failed, keeping raw screenshot: " + error);
+                        // Screenshot without a summary is still worth showing.
+                        session.setEvidence(base64Image, null);
+                        then.run();
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(String error) {
+                Log.w(TAG, "Fresh evidence capture failed: " + error);
+                fallbackToStoredEvidence(session, then);
+            }
+        });
+    }
+
+    /** Loads the newest stored screenshot as evidence when a fresh capture is impossible. AI generated */
+    private void fallbackToStoredEvidence(ChatSession session, Runnable then) {
+        dbExecutor.execute(() -> {
+            try {
+                if (appContext != null) {
+                    ActivityLog log = AppDatabase.getInstance(appContext).activityLogDao().getLastLog();
+                    if (log != null) {
+                        session.setEvidence(log.screenshotBase64, log.aiSummary);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to load fallback evidence", e);
+            }
+            then.run();
+        });
+    }
+
     public void sendMessage(String sessionId, String userText, ChatCallback cb) {
         ChatSession session = sessions.get(sessionId);
         if (session == null) {
@@ -180,7 +265,7 @@ public class QueenBeeChatManager {
 
         session.addUser(userText);
         // Show the user's line in the big box right away while the Queen thinks.
-        postUi(QueenMood.THINKING, true, QueenBeeUiState.Speaker.USER, userText, QueenBeeUiState.Decision.NONE);
+        postUi(session, QueenMood.THINKING, true, QueenBeeUiState.Speaker.USER, userText, QueenBeeUiState.Decision.NONE);
 
         OpenRouterClient.getInstance().chat(session.snapshotMessages(), new OpenRouterClient.Callback() {
             @Override
@@ -191,20 +276,12 @@ public class QueenBeeChatManager {
 
             @Override
             public void onError(String error) {
-                handleQueenError(error);
+                handleQueenError(session, error);
                 if (cb != null) cb.onError(error);
             }
         });
     }
 
-    // ------------------------------------------------------------------
-    // UI-state broadcasting + decision handling
-    // ------------------------------------------------------------------
-
-    /**
-     * Records the Queen's reply, parses & strips any hidden decision token, and broadcasts the
-     * new UI state. Returns the text that should actually be shown (token removed).
-     */
     private String handleQueenReply(String sessionId, ChatSession session, String rawText) {
         String text = rawText != null ? rawText : "";
         QueenBeeUiState.Decision decision = QueenBeeUiState.Decision.NONE;
@@ -224,6 +301,13 @@ public class QueenBeeChatManager {
             text = mm.replaceAll("").trim();
         }
 
+        // [SHOW_SCREENSHOT]: the Queen holds up her evidence. Sticky for the rest of the session.
+        Matcher sm = SHOW_SCREENSHOT_PATTERN.matcher(text);
+        if (sm.find()) {
+            session.markScreenshotRevealed();
+            text = sm.replaceAll("").trim();
+        }
+
         if (text.isEmpty()) text = "..."; // never leave the box blank
         session.addAssistant(text);
 
@@ -236,7 +320,7 @@ public class QueenBeeChatManager {
             }
         }
 
-        postUi(pickMood(modelMood, decision), false, QueenBeeUiState.Speaker.QUEEN, text, decision);
+        postUi(session, pickMood(modelMood, decision), false, QueenBeeUiState.Speaker.QUEEN, text, decision);
         return text;
     }
 
@@ -244,10 +328,12 @@ public class QueenBeeChatManager {
      * Chooses the Queen's expression for a reply. A mood the model picked wins; otherwise we fall
      * back to the decision-driven defaults (and plain talking when neither applies), preserving the
      * original network-lifecycle behaviour for models that don't emit a mood tag.
+     * Modified by AI
      */
     private QueenMood pickMood(QueenMood modelMood, QueenBeeUiState.Decision decision) {
         if (modelMood != null) return modelMood;
-        if (decision == QueenBeeUiState.Decision.REFILL) return QueenMood.HAPPY;
+        // SHOWING_HONEY is the "here is your refilled honey" pose — the natural REFILL default.
+        if (decision == QueenBeeUiState.Decision.REFILL) return QueenMood.SHOWING_HONEY;
         if (decision == QueenBeeUiState.Decision.KICK) return QueenMood.EXCLAIMING;
         return QueenMood.TALKING_1;
     }
@@ -266,21 +352,34 @@ public class QueenBeeChatManager {
         }
     }
 
-    private void handleQueenError(String error) {
-        postUi(QueenMood.ASKING, false, QueenBeeUiState.Speaker.QUEEN,
+    //Partially AI generated
+    private void handleQueenError(ChatSession session, String error) {
+        postUi(session, QueenMood.ASKING, false, QueenBeeUiState.Speaker.QUEEN,
                 "The Queen is speechless: " + error, QueenBeeUiState.Decision.NONE);
     }
 
-    private void postUi(QueenMood mood, boolean thinking, QueenBeeUiState.Speaker speaker,
-                        String text, QueenBeeUiState.Decision decision) {
-        uiState.postValue(new QueenBeeUiState(mood, thinking, speaker, text, decision));
+    /**
+     * Broadcasts a UI state. The screenshot evidence rides along on every post once the Queen has
+     * revealed it, so the frontend can render it purely from this LiveData.
+     * Partially AI generated
+     */
+    private void postUi(ChatSession session, QueenMood mood, boolean thinking,
+                        QueenBeeUiState.Speaker speaker, String text, QueenBeeUiState.Decision decision) {
+        boolean show = session != null && session.isScreenshotRevealed();
+        String shot = session != null ? session.getEvidenceScreenshot() : null;
+        String caption = session != null ? session.getEvidenceSummary() : null;
+        uiState.postValue(new QueenBeeUiState(mood, thinking, speaker, text, decision,
+                show && shot != null, shot, caption));
     }
 
-    /** Arms the hard 2-minute clock; on expiry with no decision the user is kicked out (fallback). */
+    /**
+     * Arms the hard 2-minute clock; on expiry with no decision the user is kicked out (fallback).
+     * Modified by AI
+     */
     private void scheduleDecisionTimeout(String sessionId) {
         ScheduledFuture<?> f = timeoutExecutor.schedule(() -> {
             if (decidedSessions.add(sessionId)) {
-                postUi(QueenMood.EXCLAIMING, false, QueenBeeUiState.Speaker.QUEEN,
+                postUi(sessions.get(sessionId), QueenMood.EXCLAIMING, false, QueenBeeUiState.Speaker.QUEEN,
                         "Time's up. Back to work — the hive has no more patience.",
                         QueenBeeUiState.Decision.KICK);
             }
@@ -315,14 +414,15 @@ public class QueenBeeChatManager {
         uiState.postValue(QueenBeeUiState.idle());
     }
 
-    // ------------------------------------------------------------------
-    // Screenshots
-    // ------------------------------------------------------------------
+
 
     /**
      * Retrieves the most recent screenshot together with its metadata
      * (timestamp, package name, AI summary, base64 image). The callback runs
      * on a background thread.
+     *
+     * Kept for API compatibility — the intervention overlay now receives the
+     * screenshot through {@link #getUiState()} instead of pulling it here.
      */
     public void getLastScreenshot(LastScreenshotCallback cb) {
         if (cb == null) return;
@@ -339,47 +439,98 @@ public class QueenBeeChatManager {
         });
     }
 
-    // ------------------------------------------------------------------
-    // Prompt building
-    // ------------------------------------------------------------------
 
-    private String buildSystemPrompt(int score, List<ActivityLog> recentLogs) {
+
+    /**
+     * Builds the Queen's system prompt from everything the backend knows: the score that triggered
+     * the chat, the screenshot evidence held by the session (image + AI description), and the
+     * recent activity-log summaries. Also defines the hidden control tags (mood, show-screenshot,
+     * decision) the frontend reacts to. System Prompt written with AI Assistance.
+     */
+    private String buildSystemPrompt(int score, ChatSession session, List<ActivityLog> recentLogs) {
+        String evidenceSummary = session != null ? session.getEvidenceSummary() : null;
+        boolean hasScreenshot = session != null && session.getEvidenceScreenshot() != null;
+
         StringBuilder sb = new StringBuilder();
-        sb.append("You are the Queen Bee, the stern but fair ruler of the user's productivity hive. ")
+        sb.append("You are the Queen Bee, the stern but FAIR ruler of the user's productivity hive. ")
           .append("The user has reached the maximum unproductivity score of ").append(score)
           .append("/100, which is why this conversation has started.\n\n")
           .append("Speak in the first person as the Queen Bee. Confront the user about their ")
           .append("unproductivity in a sharp, witty, slightly theatrical way, but never cruel. ")
-          .append("Reference the specific things they were doing (listed below) so it feels personal.\n\n");
+          .append("Keep each reply to a few sentences.\n\n");
 
-        if (recentLogs != null && !recentLogs.isEmpty()) {
-            sb.append("Here is what the user was recently seen doing on their screen (most recent first):\n");
-            for (ActivityLog log : recentLogs) {
-                if (log == null || log.aiSummary == null) continue;
-                sb.append("- [").append(log.packageName != null ? log.packageName : "unknown app")
-                  .append("] ").append(log.aiSummary).append("\n");
+        // --- Evidence section -------------------------------------------------
+        sb.append("YOUR EVIDENCE:\n");
+        if (hasScreenshot) {
+            sb.append("You are holding ONE screenshot that was just taken of the user's screen. ");
+            if (evidenceSummary != null && !evidenceSummary.isEmpty()) {
+                sb.append("An assistant described it as: \"").append(evidenceSummary).append("\". ");
+            } else {
+                sb.append("No description of it is available, so only say that you have it — ")
+                  .append("do not guess what is on it. ");
             }
             sb.append("\n");
         } else {
-            sb.append("(No recent screen summaries are available.)\n\n");
+            sb.append("No screenshot is available this time, so you have no visual evidence — ")
+              .append("be upfront about that and do NOT pretend to have one.\n");
+        }
+        if (recentLogs != null && !recentLogs.isEmpty()) {
+            sb.append("Earlier observations of their screen (most recent first, with time):\n");
+            SimpleDateFormat fmt = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            for (ActivityLog log : recentLogs) {
+                if (log == null || log.aiSummary == null) continue;
+                sb.append("- ").append(fmt.format(new Date(log.timestamp)))
+                  .append(" [").append(log.packageName != null ? log.packageName : "unknown app")
+                  .append("] ").append(log.aiSummary).append("\n");
+            }
+        }
+        sb.append("\n");
+
+        //Evidence
+        sb.append("RULES OF EVIDENCE (very important):\n")
+          .append("- Only claim what the evidence above actually shows. NEVER invent or exaggerate ")
+          .append("behaviour — do not say things like \"you have been scrolling endlessly\" if the ")
+          .append("evidence only shows, say, three minutes of an educational video.\n")
+          .append("- Reference the screenshot concretely: name what is visible on it.\n")
+          .append("- If the evidence looks harmless, educational or even useful, acknowledge that ")
+          .append("openly and be correspondingly lenient.\n\n");
+
+        //Showing the screenshot
+        if (hasScreenshot) {
+            sb.append("SHOWING THE SCREENSHOT:\n")
+              .append("In your FIRST reply you MUST present the screenshot to the user by including ")
+              .append("the hidden tag [SHOW_SCREENSHOT] somewhere in that reply. The app then ")
+              .append("displays the screenshot on their screen, so talk about it as something you ")
+              .append("are literally holding up (\"look at this...\"). Like the other tags, never ")
+              .append("mention or explain the tag itself in your prose.\n\n");
         }
 
-        sb.append("The user will try to convince you that it is okay that they were unproductive. ")
-          .append("Engage with their arguments and push back thoughtfully. ")
-          .append("Keep each reply to a few sentences.\n\n")
-          .append("Begin EVERY reply with a hidden mood tag in the exact form [MOOD: X], where X is one ")
+        //Mood tags
+        sb.append("Begin EVERY reply with a hidden mood tag in the exact form [MOOD: X], where X is one ")
           .append("of: TALKING_1, TALKING_2, ASKING, EXCLAIMING, SAD, HAPPY, SHOWING_HONEY. Choose the ")
-          .append("one that matches your tone in that reply — e.g. ASKING when you pose a question, ")
+          .append("one that matches your tone in that reply — ASKING when you pose a question, ")
           .append("EXCLAIMING when stern or outraged, SAD when disappointed, HAPPY when pleased, ")
-          .append("SHOWING_HONEY when you dangle the honey reward, and TALKING_1 or TALKING_2 for ")
-          .append("ordinary speech. Like the decision token below, the mood tag is a hidden control ")
-          .append("signal: never mention or explain it in your prose.\n\n")
-          .append("You must eventually reach a verdict. The instant you are genuinely convinced and ")
-          .append("decide to refill their honey, end that reply with the exact token ")
-          .append("[DECISION: REFILL]. If they are dismissive, or you decide they truly must stop now, ")
-          .append("end that reply with the exact token [DECISION: KICK]. Emit a token ONLY once you ")
-          .append("have actually decided, and never mention or explain the token in your prose — it is ")
-          .append("a hidden control signal that ends the conversation.");
+          .append("and TALKING_1 or TALKING_2 for ordinary speech. SHOWING_HONEY means you are ")
+          .append("handing the user their freshly REFILLED honey — it is a reward pose, used when ")
+          .append("you grant a refill, NOT for showing evidence of unproductiveness. The mood tag is ")
+          .append("a hidden control signal: never mention or explain it in your prose.\n\n");
+
+        //Verdict
+        sb.append("YOUR VERDICT:\n")
+          .append("The user will try to convince you that it is okay that they were unproductive, or ")
+          .append("ask for some extra time in their app. Engage with their arguments honestly. Be ")
+          .append("GENUINELY persuadable — this is a negotiation, not a sentencing: if they give any ")
+          .append("reasonable justification (the content was educational or work-related, they ")
+          .append("needed a short break, they make a credible promise to get back to work), grant ")
+          .append("them the refill. It should NOT be nearly impossible to win extra time. Reserve a ")
+          .append("kick for users who are dismissive, rude, or offer nothing at all after a couple ")
+          .append("of exchanges.\n")
+          .append("The instant you decide to refill their honey, end that reply with the exact token ")
+          .append("[DECISION: REFILL] (and celebrate it — that reply is a good place for ")
+          .append("[MOOD: SHOWING_HONEY]). If you decide they truly must stop now, end that reply ")
+          .append("with the exact token [DECISION: KICK]. Emit a token ONLY once you have actually ")
+          .append("decided, and never mention or explain the token in your prose — it is a hidden ")
+          .append("control signal that ends the conversation.");
 
         return sb.toString();
     }
