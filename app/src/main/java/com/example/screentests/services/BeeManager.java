@@ -452,6 +452,9 @@ public class BeeManager {
 
     /** ONE batched main-thread update for the whole frame (replaces the old per-bee post). */
     private void renderBeeFrames(List<BeeFrame> frames) {
+        // AI-changed: with zero bees there is nothing to draw — skip the post instead of waking
+        // the main thread every 32ms with an empty runnable while the sim idles/drains.
+        if (frames.isEmpty()) return;
         mainHandler.post(() -> {
             if (!isSimulationRunning) return; // torn down between post and run
 

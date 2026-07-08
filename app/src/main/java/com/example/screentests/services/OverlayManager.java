@@ -59,6 +59,14 @@ public class OverlayManager extends Service {
 
     private static final long KICK_BLOCK_MS = 5 * 60 * 1000L;//App block after intervention: 5min
 
+    // AI-added: lets TrackerAccessibilityService check whether the service already runs instead
+    // of firing startForegroundService() on every single window-state change.
+    private static volatile boolean running = false;
+
+    public static boolean isRunning() {
+        return running;
+    }
+
     // Live references to the intervention views while it is showing (null otherwise).
     private TextView chatDisplay;
     private ImageView queenIcon;
@@ -85,6 +93,11 @@ public class OverlayManager extends Service {
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "Service onCreate");
+        running = true;
+        // AI-added: this START_STICKY service can be resurrected after process death without
+        // MainActivity ever running; make sure the engine (and its persisted enabled/interval
+        // settings) is alive before we observe it. init() is idempotent.
+        ProductivityEngine.getInstance().init(getApplicationContext());
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         beeManager = new BeeManager(this, windowManager, 0);
         createNotificationChannel();
@@ -121,14 +134,16 @@ public class OverlayManager extends Service {
     private void updateBees(int level) {
         if (level == lastLevel) return;
         Log.d(TAG, "Updating bees for level: " + level);
-        
-        beeManager.initBeeSwarm(level);
+
+        // AI-changed: initBeeSwarm() starts the simulation thread, so calling it unconditionally
+        // meant every drop to level 0 spun up a fresh sim thread that removeAllBees() killed one
+        // line later — pointless thread churn on every calm-down / master-switch-off.
         if (level > 0) {
-            beeManager.startSimulation();
+            beeManager.initBeeSwarm(level); // ensures the score-driven simulation is running
         } else {
             beeManager.removeAllBees();
         }
-        
+
         lastLevel = level;
     }
 
@@ -373,12 +388,19 @@ public class OverlayManager extends Service {
     public void onDestroy() {
         Log.d(TAG, "Service onDestroy");
         super.onDestroy();
+        running = false;
         if (isObserverRegistered) {
             ProductivityEngine.getInstance().getState().removeObserver(stateObserver);
             QueenBeeChatManager.getInstance().getUiState().removeObserver(queenUiObserver);
             isObserverRegistered = false;
         }
         stopTalkingAnimation();
+        // AI-added: tear down every window this service put on screen. Stopping the service
+        // (e.g. via the master switch) without process death used to leave bee views, the swipe
+        // layer and any open overlay orphaned on screen with nobody left to remove them.
+        beeManager.removeAllBees();
+        updateIntervention(false, null);
+        updateCategorizationOverlay(false, "");
     }
 
 

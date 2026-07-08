@@ -15,6 +15,10 @@ import androidx.core.content.ContextCompat;
 import com.example.screentests.engine.ProductivityEngine;
 
 import java.io.ByteArrayOutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import android.hardware.HardwareBuffer;
 import android.util.Base64;
 
 public class TrackerAccessibilityService extends AccessibilityService {
@@ -22,12 +26,22 @@ public class TrackerAccessibilityService extends AccessibilityService {
     private static final String TAG = "TrackerService";
     private static TrackerAccessibilityService instance;
 
+    // AI-changed: screenshot post-processing (JPEG compress + Base64 of a full screen) used to
+    // run on the main thread via getMainExecutor() — a guaranteed jank spike of tens to hundreds
+    // of milliseconds every time a tracking screenshot was taken. It now runs here instead.
+    private final ExecutorService screenshotExecutor = Executors.newSingleThreadExecutor();
+
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
         Log.d(TAG, "Service connected");
-        
+
+        // AI-changed: init the engine here too. After process death the system restarts this
+        // service without MainActivity ever running; the engine then had no context, so score
+        // ticks and app tracking silently did nothing until the user opened the app manually.
+        ProductivityEngine.getInstance().init(getApplicationContext());
+
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
@@ -44,8 +58,15 @@ public class TrackerAccessibilityService extends AccessibilityService {
                 
                 // Exclude system UI or self
                 if (!packageName.equals("com.android.systemui") && !packageName.equals(getPackageName())) {
-                    ProductivityEngine.getInstance().onAppChanged(packageName);
-                    startOverlayService();
+                    ProductivityEngine engine = ProductivityEngine.getInstance();
+                    engine.onAppChanged(packageName);
+                    // AI-changed: this used to call startForegroundService() on EVERY window
+                    // change — a system-service round trip plus a notification rebuild in
+                    // onStartCommand on each app switch. Only kick the service when it isn't
+                    // already running, and never while the master switch is off.
+                    if (engine.isEnabled() && !OverlayManager.isRunning()) {
+                        startOverlayService();
+                    }
                 }
             }
         }
@@ -67,6 +88,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         if (instance == this) {
             instance = null;
         }
+        screenshotExecutor.shutdown(); // AI-added: don't leave the worker thread behind
     }
 
     public static TrackerAccessibilityService getInstance() {
@@ -79,18 +101,29 @@ public class TrackerAccessibilityService extends AccessibilityService {
      */
     public void takeScreenshotBase64(ScreenshotCallback callback) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+            // AI-changed: callback now runs on screenshotExecutor instead of the main thread —
+            // the JPEG compress + Base64 encode below is far too heavy for the UI thread.
+            takeScreenshot(Display.DEFAULT_DISPLAY, screenshotExecutor, new TakeScreenshotCallback() {
                 @Override
                 public void onSuccess(@NonNull ScreenshotResult screenshotResult) {
-                    Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshotResult.getHardwareBuffer(), screenshotResult.getColorSpace());
-                    if (bitmap != null) {
-                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos);
-                        byte[] imageBytes = baos.toByteArray();
-                        String base64 = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
-                        callback.onSuccess(base64);
-                    } else {
-                        callback.onFailure("Failed to wrap hardware buffer to Bitmap");
+                    HardwareBuffer buffer = screenshotResult.getHardwareBuffer();
+                    try {
+                        Bitmap bitmap = Bitmap.wrapHardwareBuffer(buffer, screenshotResult.getColorSpace());
+                        if (bitmap != null) {
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos);
+                            byte[] imageBytes = baos.toByteArray();
+                            String base64 = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
+                            callback.onSuccess(base64);
+                        } else {
+                            callback.onFailure("Failed to wrap hardware buffer to Bitmap");
+                        }
+                    } finally {
+                        // AI-changed: the receiver of a ScreenshotResult must close the
+                        // HardwareBuffer; previously every screenshot leaked one graphics
+                        // buffer (native memory the GC never sees). The wrapped Bitmap keeps
+                        // its own reference, so closing here is safe.
+                        buffer.close();
                     }
                 }
 

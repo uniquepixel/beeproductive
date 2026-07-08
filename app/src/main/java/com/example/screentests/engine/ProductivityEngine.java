@@ -29,6 +29,12 @@ public class ProductivityEngine {
     private final ScheduledExecutorService dbExecutor = Executors.newSingleThreadScheduledExecutor();
     
     private Context applicationContext;
+    // AI-changed: score state is mutated from three different threads (the tick scheduler,
+    // the dbExecutor via onAppChanged/setAiConsent, and the main thread via resetScore/
+    // setEnabled). Without a lock the reads in postStateUpdate() could see torn state — e.g.
+    // two threads both observing "atMax && activeQueenSessionId == null" and spawning two
+    // Queen Bee sessions. All access to the three fields below goes through scoreLock now.
+    private final Object scoreLock = new Object();
     private int currentScore = 0;
     private int minutesUnproductiveInCurrentSession = 0;
     // Id of the Queen Bee chat session created when the score hits the max.
@@ -95,7 +101,12 @@ public class ProductivityEngine {
     private synchronized void scheduleTick() {
         if (tickFuture != null) {
             tickFuture.cancel(false); // don't interrupt an in-flight tick
+            tickFuture = null;
         }
+        // AI-changed: while the master switch is off there is nothing to tick — previously the
+        // scheduler kept waking up every interval (down to 1s) just to bail out in
+        // tickScoreLogic(), wasting cycles/battery. setEnabled() re-arms us.
+        if (!enabled) return;
         tickFuture = scheduler.scheduleAtFixedRate(
                 this::tickScoreLogic, scoreIntervalMillis, scoreIntervalMillis, TimeUnit.MILLISECONDS);
     }
@@ -144,16 +155,23 @@ public class ProductivityEngine {
                     .apply();
         }
         if (!value) {
-            currentScore = 0;
-            minutesUnproductiveInCurrentSession = 0;
-            if (activeQueenSessionId != null) {
-                QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
-                activeQueenSessionId = null;
+            synchronized (scoreLock) { // AI-changed: don't race an in-flight tick mutating the score
+                currentScore = 0;
+                minutesUnproductiveInCurrentSession = 0;
+                if (activeQueenSessionId != null) {
+                    QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
+                    activeQueenSessionId = null;
+                }
             }
-            ProductivityState current = stateLiveData.getValue();
-            String pkg = (current != null) ? current.getCurrentPackageName() : "";
-            stateLiveData.postValue(new ProductivityState(0, 0, false, pkg, false, false, false, null));
+            // AI-changed: post the neutral state with an EMPTY package name. Previously the old
+            // package was kept, so after re-enabling, the ticker resumed scoring the app the user
+            // was in when they switched off — even if they had long since moved on (onAppChanged
+            // is gated while disabled, so the state could not correct itself until the next app
+            // switch). With an empty package the ticker stays inert until a real app change.
+            stateLiveData.postValue(new ProductivityState(0, 0, false, "", false, false, false, null));
         }
+        // AI-changed: arm or cancel the score ticker to match the switch (see scheduleTick()).
+        scheduleTick();
     }
 
     public int getMaxBees() {
@@ -193,11 +211,31 @@ public class ProductivityEngine {
                         ? AppStatus.NEUTRAL.name() : AppStatus.UNKNOWN.name();
                 policy = new AppPolicy(packageName, initialStatus, 1, 0, 0);
                 db.appPolicyDao().insertPolicy(policy);
-            } else if (AppStatus.BLOCKED.name().equals(policy.status) && System.currentTimeMillis() < policy.blockedUntilMillis) {
-                // If it is blocked via AI penalty, kick them out immediately
-                TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
-                if (tracker != null) {
-                    tracker.enforceLockout();
+            } else if (AppStatus.BLOCKED.name().equals(policy.status)) {
+                if (System.currentTimeMillis() < policy.blockedUntilMillis) {
+                    // If it is blocked via AI penalty, kick them out immediately
+                    TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
+                    if (tracker != null) {
+                        tracker.enforceLockout();
+                    }
+                } else {
+                    // AI-changed: an expired block used to leave the app in BLOCKED forever, which
+                    // silently exempted it from scoring (neither UNPRODUCTIVE nor PRODUCTIVE branch
+                    // matched in the tick). Restore UNPRODUCTIVE — only unproductive apps ever get
+                    // blocked — keeping severity and AI consent.
+                    policy.status = AppStatus.UNPRODUCTIVE.name();
+                    policy.blockedUntilMillis = 0;
+                    db.appPolicyDao().updatePolicy(policy);
+                }
+            }
+
+            // AI-changed: switching to a different app starts a fresh usage session, so the
+            // screenshot-cadence counter restarts with it. Previously minutes carried over
+            // between unproductive apps, firing a screenshot right after an app switch.
+            ProductivityState prev = stateLiveData.getValue();
+            if (prev == null || !packageName.equals(prev.getCurrentPackageName())) {
+                synchronized (scoreLock) {
+                    minutesUnproductiveInCurrentSession = 0;
                 }
             }
 
@@ -223,51 +261,69 @@ public class ProductivityEngine {
      * The internal background ticker. Runs every 1 minute.
      */
     private void tickScoreLogic() {
+        // AI-changed: scheduleAtFixedRate() permanently cancels the periodic task if one run
+        // throws. A single unexpected exception (e.g. a transient Room/DB error) used to kill
+        // the score ticker silently until the next app restart — the score just froze.
+        try {
+            tickScoreLogicInternal();
+        } catch (Exception e) {
+            Log.e(TAG, "Score tick failed", e);
+        }
+    }
+
+    private void tickScoreLogicInternal() {
         if (applicationContext == null || !enabled) return;
-        
+
         ProductivityState currentState = stateLiveData.getValue();
         if (currentState == null || currentState.getCurrentPackageName().isEmpty()) return;
-        
+
         String packageName = currentState.getCurrentPackageName();
-        
+
         AppDatabase db = AppDatabase.getInstance(applicationContext);
         AppPolicy policy = db.appPolicyDao().getPolicyForPackage(packageName);
-        
+
         if (policy == null
                 || AppStatus.UNKNOWN.name().equals(policy.status)
                 || AppStatus.NEUTRAL.name().equals(policy.status)) {
             // Unknown apps await categorization; neutral apps are "not an app".
             // Neither moves the score or takes screenshots.
-            minutesUnproductiveInCurrentSession = 0;
+            synchronized (scoreLock) {
+                minutesUnproductiveInCurrentSession = 0;
+            }
             return;
         }
-        
+
         if (AppStatus.BLOCKED.name().equals(policy.status) && System.currentTimeMillis() < policy.blockedUntilMillis) {
              TrackerAccessibilityService tracker = TrackerAccessibilityService.getInstance();
              if (tracker != null) tracker.enforceLockout();
              return;
         }
 
-        if (AppStatus.UNPRODUCTIVE.name().equals(policy.status)) {
-            // Apply severity penalty
-            int penalty = calculatePenalty(policy.severity);
-            currentScore = Math.min(SCORE_MAX, currentScore + penalty);
-            minutesUnproductiveInCurrentSession++;
-            
-            // Check if we should take a screenshot to track activity for the AI
-            if (minutesUnproductiveInCurrentSession % SCREENSHOT_INTERVAL_MINUTES == 0) {
-                if (policy.aiConsent == 1) {
-                    triggerBackgroundScreenshotAndAnalysis(packageName);
-                }
-            }
+        // AI-changed: score mutation happens under scoreLock so it can't race resetScore()/
+        // setEnabled() from other threads; the screenshot trigger is computed inside but fired
+        // outside the lock (it fans out to the accessibility service + network).
+        boolean takeScreenshot = false;
+        synchronized (scoreLock) {
+            if (AppStatus.UNPRODUCTIVE.name().equals(policy.status)) {
+                // Apply severity penalty
+                int penalty = calculatePenalty(policy.severity);
+                currentScore = Math.min(SCORE_MAX, currentScore + penalty);
+                minutesUnproductiveInCurrentSession++;
 
-        } else if (AppStatus.PRODUCTIVE.name().equals(policy.status)) {
-            // Cool down effect
-            currentScore = Math.max(SCORE_MIN, currentScore - 15);
-            minutesUnproductiveInCurrentSession = 0;
+                // Check if we should take a screenshot to track activity for the AI
+                takeScreenshot = (minutesUnproductiveInCurrentSession % SCREENSHOT_INTERVAL_MINUTES == 0)
+                        && policy.aiConsent == 1;
+            } else if (AppStatus.PRODUCTIVE.name().equals(policy.status)) {
+                // Cool down effect
+                currentScore = Math.max(SCORE_MIN, currentScore - 15);
+                minutesUnproductiveInCurrentSession = 0;
+            }
+        }
+        if (takeScreenshot) {
+            triggerBackgroundScreenshotAndAnalysis(packageName);
         }
 
-        boolean needsAiConsent = (policy != null && policy.aiConsent == 0);
+        boolean needsAiConsent = (policy.aiConsent == 0);
         // Post immediately to UI
         postStateUpdate(packageName, false, needsAiConsent);
     }
@@ -312,28 +368,39 @@ public class ProductivityEngine {
     }
 
     private void postStateUpdate(String packageName, boolean isUnknown, boolean needsAiConsent) {
-        int level = computeLevel(currentScore);
-        boolean atMax = currentScore >= SCORE_MAX;
+        // AI-changed: a DB job queued before the master switch was flipped off (onAppChanged,
+        // setAiConsent, ...) could finish after setEnabled(false) and re-post a live state on
+        // top of the cleared one — bees came back while the app was "off". While disabled,
+        // only setEnabled()'s neutral state may go out.
+        if (!enabled) return;
 
-        // When the score hits the max, fire up the Queen Bee chat exactly once.
-        // The session stays alive until resetScore() so we don't respawn every tick.
-        if (atMax && activeQueenSessionId == null) {
-            ChatSession session = QueenBeeChatManager.getInstance().startSession(currentScore, null);
-            activeQueenSessionId = session.sessionId;
-            Log.d(TAG, "Queen Bee session started: " + activeQueenSessionId);
+        // AI-changed: synchronized so score + session id are read/created atomically. This is
+        // called from both the tick scheduler and the dbExecutor; unsynchronized, both could
+        // see "atMax && no session" and start two Queen Bee sessions.
+        synchronized (scoreLock) {
+            int level = computeLevel(currentScore);
+            boolean atMax = currentScore >= SCORE_MAX;
+
+            // When the score hits the max, fire up the Queen Bee chat exactly once.
+            // The session stays alive until resetScore() so we don't respawn every tick.
+            if (atMax && activeQueenSessionId == null) {
+                ChatSession session = QueenBeeChatManager.getInstance().startSession(currentScore, null);
+                activeQueenSessionId = session.sessionId;
+                Log.d(TAG, "Queen Bee session started: " + activeQueenSessionId);
+            }
+
+            ProductivityState newState = new ProductivityState(
+                currentScore,
+                level,
+                atMax,              // showInterventionOverlay (existing behaviour)
+                packageName,
+                isUnknown,
+                needsAiConsent,
+                atMax,              // showQueenBeeChat
+                activeQueenSessionId
+            );
+            stateLiveData.postValue(newState);
         }
-
-        ProductivityState newState = new ProductivityState(
-            currentScore,
-            level,
-            atMax,              // showInterventionOverlay (existing behaviour)
-            packageName,
-            isUnknown,
-            needsAiConsent,
-            atMax,              // showQueenBeeChat
-            activeQueenSessionId
-        );
-        stateLiveData.postValue(newState);
     }
 
     private int computeLevel(int score) {
@@ -345,11 +412,17 @@ public class ProductivityEngine {
     }
 
     public void resetScore() {
-        currentScore = 0;
-        // End the Queen Bee chat that was opened at max score, if any.
-        if (activeQueenSessionId != null) {
-            QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
-            activeQueenSessionId = null;
+        // AI-changed: locked — this runs on the main thread (honey-refill animation) while the
+        // tick thread may be mid-mutation; unsynchronized, a concurrent tick could resurrect
+        // the score/session right after the reset.
+        synchronized (scoreLock) {
+            currentScore = 0;
+            minutesUnproductiveInCurrentSession = 0;
+            // End the Queen Bee chat that was opened at max score, if any.
+            if (activeQueenSessionId != null) {
+                QueenBeeChatManager.getInstance().endSession(activeQueenSessionId);
+                activeQueenSessionId = null;
+            }
         }
         ProductivityState state = stateLiveData.getValue();
         if (state != null) {
@@ -364,7 +437,9 @@ public class ProductivityEngine {
      * score so the Queen Bee chat ends. Reuses the existing lockout machinery — no new wiring.
      */
     public void blockApp(String packageName, long durationMs) {
-        if (packageName == null || packageName.isEmpty()) {
+        // AI-changed: guard against use before init() — the lambda below dereferenced
+        // applicationContext and would have crashed the dbExecutor thread.
+        if (packageName == null || packageName.isEmpty() || applicationContext == null) {
             resetScore();
             return;
         }
@@ -389,6 +464,7 @@ public class ProductivityEngine {
     }
 
     public void resetAllCategorizations() {
+        if (applicationContext == null) return; // AI-changed: guard against use before init()
         dbExecutor.execute(() -> {
             AppDatabase.getInstance(applicationContext).appPolicyDao().deleteAllPolicies();
 
@@ -420,6 +496,7 @@ public class ProductivityEngine {
     }
 
     public void setAiConsent(String packageName, int consent) {
+        if (applicationContext == null) return; // AI-changed: guard against use before init()
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
             AppPolicy policy = db.appPolicyDao().getPolicyForPackage(packageName);
@@ -437,6 +514,7 @@ public class ProductivityEngine {
     }
 
     public void updateAppPolicy(String packageName, String status, int severity) {
+        if (applicationContext == null) return; // AI-changed: guard against use before init()
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
             AppPolicy newPolicy = new AppPolicy(packageName, status, severity, 0L, 0);

@@ -42,8 +42,18 @@ public class MainActivity extends AppCompatActivity {
 
         com.google.android.material.materialswitch.MaterialSwitch productivitySwitch = findViewById(R.id.productivitySwitch);
         productivitySwitch.setChecked(ProductivityEngine.getInstance().isEnabled());
-        productivitySwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
-                ProductivityEngine.getInstance().setEnabled(isChecked));
+        productivitySwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            ProductivityEngine.getInstance().setEnabled(isChecked);
+            // AI-changed: the master switch now also controls the overlay foreground service.
+            // Switching off used to leave an idle service (and its permanent "Tracker is active"
+            // notification) running; switching on now brings it back immediately instead of
+            // waiting for the next app change.
+            if (isChecked) {
+                checkOverlayPermission();
+            } else {
+                stopService(new Intent(MainActivity.this, OverlayManager.class));
+            }
+        });
 
         ProductivityEngine.getInstance().getState().observe(this, this::updateUI);
 
@@ -62,6 +72,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startOverlayService() {
+        // AI-changed: respect the master switch — don't spin up the foreground service (and its
+        // permanent notification) when the whole app functionality is turned off.
+        if (!ProductivityEngine.getInstance().isEnabled()) return;
         Intent intent = new Intent(this, OverlayManager.class);
         androidx.core.content.ContextCompat.startForegroundService(this, intent);
     }

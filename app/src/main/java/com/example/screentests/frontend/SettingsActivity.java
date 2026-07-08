@@ -6,6 +6,7 @@ import android.widget.Button;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.screentests.R;
@@ -28,19 +29,32 @@ public class SettingsActivity extends AppCompatActivity {
         float currentIntervalSec = engine.getScoreIntervalMillis() / 1000f;
         float aggressionValue = 61f - currentIntervalSec;
         aggressionSlider.setValue(Math.max(1f, Math.min(60f, aggressionValue)));
-        
-        aggressionSlider.addOnChangeListener((slider, value, fromUser) -> {
-            if (fromUser) {
-                long newIntervalMs = (long)((61f - value) * 1000);
+
+        // AI-changed: was addOnChangeListener, which committed on EVERY drag event — each pixel
+        // of movement rewrote SharedPreferences and re-armed the score scheduler (and every
+        // re-arm resets the delay until the next tick, so dragging kept postponing scoring).
+        // Commit once when the finger lifts instead.
+        aggressionSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override
+            public void onStartTrackingTouch(@NonNull Slider slider) { }
+
+            @Override
+            public void onStopTrackingTouch(@NonNull Slider slider) {
+                long newIntervalMs = (long) ((61f - slider.getValue()) * 1000);
                 engine.setScoreIntervalMillis(newIntervalMs);
             }
         });
 
         Slider sizeSlider = findViewById(R.id.sizeSlider);//Size: max #bees
         sizeSlider.setValue((float) engine.getMaxBees());
-        sizeSlider.addOnChangeListener((slider, value, fromUser) -> {
-            if (fromUser) {
-                engine.setMaxBees((int) value);
+        // AI-changed: same commit-on-release treatment as the aggression slider above.
+        sizeSlider.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override
+            public void onStartTrackingTouch(@NonNull Slider slider) { }
+
+            @Override
+            public void onStopTrackingTouch(@NonNull Slider slider) {
+                engine.setMaxBees((int) slider.getValue());
             }
         });
 
