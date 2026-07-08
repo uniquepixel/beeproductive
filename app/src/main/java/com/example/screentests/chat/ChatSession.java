@@ -23,6 +23,12 @@ public class ChatSession {
     /** Full transcript sent to the model: index 0 is the "system" prompt. */
     final List<ChatRequest.Message> messages = new ArrayList<>();
 
+    // Screenshot evidence the Queen holds against the user for this session. Captured (or loaded
+    // from the last log) when the session starts and pushed to the frontend via QueenBeeUiState.
+    private String evidenceScreenshotBase64;
+    private String evidenceSummary;
+    private boolean screenshotRevealed = false;
+
     ChatSession(String sessionId, long createdAt, int scoreSnapshot, String systemPrompt) {
         this.sessionId = sessionId;
         this.createdAt = createdAt;
@@ -46,6 +52,32 @@ public class ChatSession {
     /** Snapshot of the message list for the network call (avoids mutation races). */
     synchronized List<ChatRequest.Message> snapshotMessages() {
         return new ArrayList<>(messages);
+    }
+
+    /** Stores the screenshot evidence for this session. AI generated */
+    synchronized void setEvidence(String screenshotBase64, String summary) {
+        this.evidenceScreenshotBase64 = screenshotBase64;
+        this.evidenceSummary = summary;
+    }
+
+    /** Base64 JPEG of the evidence screenshot, null when none exists. AI generated */
+    public synchronized String getEvidenceScreenshot() {
+        return evidenceScreenshotBase64;
+    }
+
+    /** AI summary of the evidence screenshot, null when none exists. AI generated */
+    public synchronized String getEvidenceSummary() {
+        return evidenceSummary;
+    }
+
+    /** Marks the screenshot as presented; it stays visible for the rest of the session. AI generated */
+    synchronized void markScreenshotRevealed() {
+        this.screenshotRevealed = true;
+    }
+
+    /** True once the Queen has presented the screenshot to the user. AI generated */
+    public synchronized boolean isScreenshotRevealed() {
+        return screenshotRevealed;
     }
 
     /**

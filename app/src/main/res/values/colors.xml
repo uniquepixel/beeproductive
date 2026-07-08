@@ -5,4 +5,7 @@
     <color name="bee_yellow">#FFD700</color>
     <color name="bee_dark">#2B2B2B</color>
     <color name="bee_soft_yellow">#FFF9C4</color>
+    <!-- Decision banner colors (AI generated) -->
+    <color name="decision_refill">#4CAF50</color>
+    <color name="decision_kick">#D32F2F</color>
 </resources>

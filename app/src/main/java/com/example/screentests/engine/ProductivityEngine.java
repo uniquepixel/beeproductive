@@ -37,7 +37,9 @@ public class ProductivityEngine {
     
     private static final int SCORE_MAX = 100;
     private static final int SCORE_MIN = 0;
-    private static final int SCREENSHOT_INTERVAL_MINUTES = 2;
+    // Screenshots are taken every N unproductive ticks (a tick defaults to 1 minute). Raised from
+    // 2 to 5 so the AI checks in less often; the Queen takes her own fresh screenshot on demand.
+    private static final int SCREENSHOT_INTERVAL_TICKS = 5;
 
     // Configurable interval between score ticks. Persisted so a demo slider survives restarts.
     private static final String PREFS_NAME = "beeproductive_prefs";
@@ -105,6 +107,15 @@ public class ProductivityEngine {
      */
     public long getScoreIntervalMillis() {
         return scoreIntervalMillis;
+    }
+
+    /**
+     * Interval (in milliseconds) between background screenshots while the user is in an
+     * unproductive app. Derived from the tick interval so the frontend always shows the real
+     * cadence: {@code scoreIntervalMillis * SCREENSHOT_INTERVAL_TICKS}. AI generated
+     */
+    public long getScreenshotIntervalMillis() {
+        return scoreIntervalMillis * SCREENSHOT_INTERVAL_TICKS;
     }
 
     /**
@@ -221,6 +232,7 @@ public class ProductivityEngine {
 
     /**
      * The internal background ticker. Runs every 1 minute.
+     * Partially AI generated / Modified by AI
      */
     private void tickScoreLogic() {
         if (applicationContext == null || !enabled) return;
@@ -255,7 +267,7 @@ public class ProductivityEngine {
             minutesUnproductiveInCurrentSession++;
             
             // Check if we should take a screenshot to track activity for the AI
-            if (minutesUnproductiveInCurrentSession % SCREENSHOT_INTERVAL_MINUTES == 0) {
+            if (minutesUnproductiveInCurrentSession % SCREENSHOT_INTERVAL_TICKS == 0) {
                 if (policy.aiConsent == 1) {
                     triggerBackgroundScreenshotAndAnalysis(packageName);
                 }
@@ -317,8 +329,10 @@ public class ProductivityEngine {
 
         // When the score hits the max, fire up the Queen Bee chat exactly once.
         // The session stays alive until resetScore() so we don't respawn every tick.
+        // The package name rides along so the Queen's fresh evidence screenshot is logged
+        // against the app the user was actually caught in. Partially AI generated / Modified by AI
         if (atMax && activeQueenSessionId == null) {
-            ChatSession session = QueenBeeChatManager.getInstance().startSession(currentScore, null);
+            ChatSession session = QueenBeeChatManager.getInstance().startSession(currentScore, packageName, null);
             activeQueenSessionId = session.sessionId;
             Log.d(TAG, "Queen Bee session started: " + activeQueenSessionId);
         }
