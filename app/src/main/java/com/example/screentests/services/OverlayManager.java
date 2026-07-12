@@ -82,7 +82,15 @@ public class OverlayManager extends Service {
     private boolean screenshotShown = false;
     private String activeSessionId;
     private String activePackageName = "";
+    // AI-added: the app the user was caught in when the intervention OPENED. The kick verdict
+    // must block this app — activePackageName keeps tracking live window changes, so by decision
+    // time it could point at the launcher (user pressed home mid-chat) or another app entirely.
+    private String interventionPackage = "";
     private QueenBeeUiState.Decision lastDecision = QueenBeeUiState.Decision.NONE;
+    // AI-added: token for the delayed end-game runnables (honey refill frames, score reset, app
+    // block) so an early teardown can cancel anything still pending — a stale blockApp() firing
+    // after the master switch was flipped off used to yank the user to HOME out of nowhere.
+    private static final Object END_GAME_TOKEN = new Object();
 
     //talking anim
     private boolean talkingActive = false;
@@ -166,6 +174,14 @@ public class OverlayManager extends Service {
                 Log.w(TAG, "Cannot show intervention: No Overlay Perms");
                 return;
             }
+            // AI-added: never open the intervention without a live Queen session. Without one
+            // the overlay is a dead end — no opening line ever arrives (the Queen just loops
+            // her talking animation over the placeholder text), the send button has no target,
+            // and there is no decision or timeout that could ever close the window again.
+            if (sessionId == null) {
+                Log.w(TAG, "Cannot show intervention: no Queen Bee session attached");
+                return;
+            }
 
             // Apply Material theme to the service context for proper inflation of Material Components
             ContextThemeWrapper wrapper = new ContextThemeWrapper(this, R.style.Theme_Screentests);
@@ -195,6 +211,7 @@ public class OverlayManager extends Service {
             queenIcon = interventionOverlay.findViewById(R.id.queenBeeIcon);
 
             activeSessionId = sessionId;
+            interventionPackage = activePackageName; // the app the user was caught in
             lastDecision = QueenBeeUiState.Decision.NONE;
             // The screenshot now arrives through the QueenBeeUiState LiveData — the Queen decides
             // when to hold it up (renderQueenUiState), so it starts hidden.
@@ -231,6 +248,11 @@ public class OverlayManager extends Service {
             }
         } else {//hide overlay ERRORS HERE (fixed now but might be back)
             stopTalkingAnimation();
+            // AI-added: drop any end-game work that hasn't fired yet. In the normal flow the
+            // delayed reset/block already ran (it is what caused this hide); on an early
+            // teardown (master switch off, service destroyed) a pending blockApp() must not
+            // fire minutes later against whatever the user is doing then.
+            mainHandler.removeCallbacksAndMessages(END_GAME_TOKEN);
             chatDisplay = null;
             queenIcon = null;
             screenshotView = null;
@@ -239,6 +261,7 @@ public class OverlayManager extends Service {
             decisionBannerText = null;
             screenshotShown = false;
             activeSessionId = null;
+            interventionPackage = "";
             lastDecision = QueenBeeUiState.Decision.NONE;//does this need to be reset?
             if (interventionOverlay != null) {
                 try {
@@ -289,6 +312,13 @@ public class OverlayManager extends Service {
         if (s.thinking) {
             stopTalkingAnimation();
             queenIcon.setImageResource(moodToDrawable(QueenMood.THINKING));
+        } else if (s.speaker == QueenBeeUiState.Speaker.NONE) {
+            // AI-added: idle placeholder state — the session hasn't produced anything yet. Its
+            // default mood is TALKING_1, so rendering it like a real reply looped the talking
+            // animation forever over the placeholder text ("stuck talking on the first message
+            // without ever thinking"). Show the thinking pose until real session state arrives.
+            stopTalkingAnimation();
+            queenIcon.setImageResource(moodToDrawable(QueenMood.THINKING));
         } else if (s.mood == QueenMood.TALKING_1 || s.mood == QueenMood.TALKING_2) {
             startTalkingAnimation();
         } else {
@@ -329,7 +359,9 @@ public class OverlayManager extends Service {
                 shot.setImageBitmap(result);
                 shot.setAlpha(0f);
                 shot.setVisibility(View.VISIBLE);
-                shot.animate().alpha(0.8f).setDuration(400).start();
+                // AI-changed: full opacity — the screenshot no longer sits on top of the chat
+                // text (it moved to the bottom of the layout), so it can be fully readable.
+                shot.animate().alpha(1f).setDuration(400).start();
                 TextView cap = screenshotCaptionView;
                 if (cap != null && caption != null && !caption.isEmpty()) {
                     cap.setText("Caught in the act: " + caption);
@@ -429,11 +461,11 @@ public class OverlayManager extends Service {
             final int res = frames[i];
             mainHandler.postDelayed(() -> {
                 if (queenIcon != null) queenIcon.setImageResource(res);
-            }, 900L + i * 500L);
+            }, END_GAME_TOKEN, 900L + i * 500L);
         }
         mainHandler.postDelayed(
                 () -> ProductivityEngine.getInstance().resetScore(),
-                REFILL_LINGER_MS);
+                END_GAME_TOKEN, REFILL_LINGER_MS);
     }
 
     /**
@@ -443,10 +475,13 @@ public class OverlayManager extends Service {
     private void playKickThenBlock() {
         stopTalkingAnimation();
         if (queenIcon != null) queenIcon.setImageResource(moodToDrawable(QueenMood.EXCLAIMING));
-        final String pkg = activePackageName;
+        // AI-changed: block the app the intervention was opened for, NOT the live current
+        // package — by decision time that could already be the launcher (user pressed home
+        // mid-chat), and blocking the launcher stunlocked the homescreen in a HOME loop.
+        final String pkg = interventionPackage;
         mainHandler.postDelayed(
                 () -> ProductivityEngine.getInstance().blockApp(pkg, KICK_BLOCK_MS),
-                KICK_LINGER_MS);
+                END_GAME_TOKEN, KICK_LINGER_MS);
     }
 
 

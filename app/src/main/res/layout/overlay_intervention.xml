@@ -51,31 +51,24 @@
         app:layout_constraintEnd_toEndOf="parent" />
 
 
+    <!-- Evidence screenshot: small and anchored to the bottom-left, above the input row.
+         The chat card constrains its bottom to this view's top, so the Queen's text can
+         never overlap the screenshot — on any screen size. (Layout reworked: it used to be
+         a 55%-height, centered, elevated view that covered the chat text on small devices.) -->
     <ImageView
         android:id="@+id/lastActivityScreenshot"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_margin="12dp"
-        android:alpha="1.0"
+        android:layout_marginStart="24dp"
+        android:layout_marginBottom="8dp"
         android:scaleType="centerInside"
         android:visibility="gone"
-        android:elevation="20dp"
-        android:rotation="2"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="@+id/guideline_vertical_center"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintHeight_percent="0.55"
-        app:layout_constraintDimensionRatio="9:16"
-        app:layout_constraintVertical_bias="0.5" />
-
-<!--     for lastActivityScreenshot-->
-    <androidx.constraintlayout.widget.Guideline
-        android:id="@+id/guideline_vertical_center"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        app:layout_constraintGuide_percent="0.5" />
+        android:elevation="8dp"
+        android:rotation="-2"
+        app:layout_constraintBottom_toTopOf="@+id/inputContainer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintHeight_percent="0.24"
+        app:layout_constraintDimensionRatio="9:16" />
 
     <TextView
         android:id="@+id/interventionTitle"
@@ -117,7 +110,7 @@
         app:cardBackgroundColor="#CCFFFFFF"
         app:cardCornerRadius="24dp"
         app:cardElevation="0dp"
-        app:layout_constraintBottom_toTopOf="@+id/inputContainer"
+        app:layout_constraintBottom_toTopOf="@+id/lastActivityScreenshot"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/screenshotCaption"

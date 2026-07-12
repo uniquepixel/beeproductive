@@ -116,6 +116,7 @@ public class TrackerAccessibilityService extends AccessibilityService {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // AI-changed: callback now runs on screenshotExecutor instead of the main thread —
             // the JPEG compress + Base64 encode below is far too heavy for the UI thread.
+            try {
             takeScreenshot(Display.DEFAULT_DISPLAY, screenshotExecutor, new TakeScreenshotCallback() {
                 @Override
                 public void onSuccess(@NonNull ScreenshotResult screenshotResult) { // convert buffer to Bitmap, compress to JPEG, encode to base64 Str
@@ -145,6 +146,15 @@ public class TrackerAccessibilityService extends AccessibilityService {
                     callback.onFailure("Screenshot failed with code: " + errorCode);
                 }
             });
+            } catch (Exception e) {
+                // AI-added: takeScreenshot() throws (SecurityException & co.) instead of calling
+                // onFailure when the service lacks the capability or is being torn down. An
+                // uncaught throw here killed the caller silently — the Queen then waited on
+                // evidence that never arrived. Route it into the normal failure path so the
+                // stored-screenshot fallback still runs.
+                Log.e(TAG, "takeScreenshot threw", e);
+                callback.onFailure("Screenshot call failed: " + e.getMessage());
+            }
         } else {
             callback.onFailure("Screenshots via Accessibility Service require Android 11+");
         }

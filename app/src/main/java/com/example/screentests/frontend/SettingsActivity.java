@@ -1,6 +1,5 @@
 package com.example.screentests.frontend;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.Toast;
@@ -11,7 +10,6 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.screentests.R;
 import com.example.screentests.engine.ProductivityEngine;
-import com.example.screentests.services.OverlayManager;
 import com.google.android.material.slider.Slider;
 
 public class SettingsActivity extends AppCompatActivity {
@@ -60,11 +58,6 @@ public class SettingsActivity extends AppCompatActivity {
 
         Button backButton = findViewById(R.id.backButton);
         backButton.setOnClickListener(v -> finish());
-
-        findViewById(R.id.debugTriggerInterventionButton).setOnClickListener(v -> {
-            startService(new Intent(SettingsActivity.this, OverlayManager.class));
-            ProductivityEngine.getInstance().debugTriggerUI(4, true);
-        });
 
         findViewById(R.id.resetCategorizationButton).setOnClickListener(v -> {
             ProductivityEngine.getInstance().resetAllCategorizations();

@@ -32,8 +32,19 @@ public class OpenRouterClient {
     private final OpenRouterApi api;
 
     private OpenRouterClient() {
+        // AI-changed: OkHttp's default 10s read timeout regularly cut off the Queen's opening
+        // line — the free-tier models often need well over 10s to answer the big system prompt
+        // (and the vision model to describe a screenshot), so the very first message frequently
+        // died with a timeout. Give the models room to answer.
+        okhttp3.OkHttpClient httpClient = new okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(150, java.util.concurrent.TimeUnit.SECONDS)
+                .build();
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(BASE_URL)
+                .client(httpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
         api = retrofit.create(OpenRouterApi.class);

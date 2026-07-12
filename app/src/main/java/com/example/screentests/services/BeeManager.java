@@ -149,6 +149,10 @@ public class BeeManager {
     public void startSimulation() {
         if (isSimulationRunning) return;
         isSimulationRunning = true;
+        // AI-added: the layer is never present when a fresh simulation starts (teardown removes
+        // it), but a racing final frame of the PREVIOUS run may have left the desired-flag stale
+        // true — which would suppress the "add layer" transition for the new run.
+        swipeLayerDesired = false;
 
         //Snapshot screen size once on the main thread.
         //If we wanted the screen to be able to rotate then this would need constant refreshing!
@@ -672,6 +676,13 @@ public class BeeManager {
     private void setSwipeLayer(boolean show) {
         mainHandler.post(() -> {
             if (show && swipeLayer == null) {
+                // AI-changed: re-check at execution time. removeAllBees() (score reset after a
+                // refill/kick) flips these flags and posts its teardown while the sim thread may
+                // still be mid-frame on a stale score; that frame could post this add-runnable
+                // AFTER the teardown ran. The stale add then left an invisible, touch-consuming
+                // full-screen layer on the homescreen with nobody left to remove it — the user
+                // was locked out of their own launcher until reboot.
+                if (!isSimulationRunning || !swipeLayerDesired) return;
                 if (!Settings.canDrawOverlays(context)) return;
 
                 View layer = new View(context);

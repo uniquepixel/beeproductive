@@ -378,7 +378,10 @@ public class QueenBeeChatManager {
      */
     private void scheduleDecisionTimeout(String sessionId) {
         ScheduledFuture<?> f = timeoutExecutor.schedule(() -> {
-            if (decidedSessions.add(sessionId)) {
+            // AI-changed: also require the session to still exist. cancel(false) can miss a
+            // timeout that is already firing while endSession() runs; without this check the
+            // stale timeout posted a KICK into the UI channel of whatever session came next.
+            if (sessions.containsKey(sessionId) && decidedSessions.add(sessionId)) {
                 postUi(sessions.get(sessionId), QueenMood.EXCLAIMING, false, QueenBeeUiState.Speaker.QUEEN,
                         "Time's up. Back to work — the hive has no more patience.",
                         QueenBeeUiState.Decision.KICK);

@@ -230,6 +230,12 @@ public class ProductivityEngine {
                     if (tracker != null) {
                         tracker.enforceLockout();
                     }
+                    // AI-added: don't publish the blocked app as the current one — the user is
+                    // being bounced HOME right now. Publishing it let the score tick re-run the
+                    // lockout against a stale package every interval, hammering the HOME action
+                    // while the user was already sitting on the homescreen. The launcher's own
+                    // window event follows immediately and sets the real state.
+                    return;
                 } else {
                     // AI-changed: an expired block used to leave the app in BLOCKED forever, which
                     // silently exempted it from scoring (neither UNPRODUCTIVE nor PRODUCTIVE branch
@@ -465,6 +471,14 @@ public class ProductivityEngine {
             resetScore();
             return;
         }
+        // AI-added: never block system non-apps. The kick can fire while the state already
+        // points at the launcher or keyboard (the user pressed home mid-chat, or the decision
+        // timeout hit); blocking the launcher made every arrival on the homescreen bounce
+        // through enforceLockout() in an endless HOME loop — a full stunlock.
+        if (isSystemNonApp(packageName)) {
+            resetScore();
+            return;
+        }
         final long until = System.currentTimeMillis() + Math.max(0, durationMs);
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(applicationContext);
@@ -483,6 +497,11 @@ public class ProductivityEngine {
         }
         // Clear the score so the intervention overlay + Queen Bee chat close.
         resetScore();
+        // AI-added: also clear the current package. The user is on their way HOME, but until
+        // the launcher's window event arrived the state kept naming the freshly blocked app as
+        // current — so every score tick (down to 1s in demo mode) saw "BLOCKED and active" and
+        // fired GLOBAL_ACTION_HOME again, stunlocking the user on their own homescreen.
+        postStateUpdate("", false, false);
     }
 
     public void resetAllCategorizations() {
@@ -490,31 +509,13 @@ public class ProductivityEngine {
         dbExecutor.execute(() -> {
             AppDatabase.getInstance(applicationContext).appPolicyDao().deleteAllPolicies();
 
-            // After clearing, we might want to re-check the current app
-            ProductivityState state = stateLiveData.getValue();
-            if (state != null && !state.getCurrentPackageName().isEmpty()) {
-                onAppChanged(state.getCurrentPackageName());
-            }
+            // AI-changed: no immediate re-check of the "current" app here. The user presses this
+            // button inside our own Settings screen, so the state's package name is the app they
+            // were in BEFORE opening BeeProductive. Re-checking it popped the categorization
+            // overlay right over the Settings screen, and one reflexive "Save" there silently
+            // re-categorized that app — which then never re-prompted, making the reset look
+            // broken. The next real app switch triggers onAppChanged() and re-prompts naturally.
         });
-    }
-
-    /**
-     * For debugging/testing the UI without modifying the internal score.
-     */
-    public void debugTriggerUI(int level, boolean showIntervention) {
-        ProductivityState current = stateLiveData.getValue();
-        String pkg = (current != null) ? current.getCurrentPackageName() : "";
-        ProductivityState debugState = new ProductivityState(
-                currentScore,
-                level,
-                showIntervention,
-                pkg,
-                false,
-                false,
-                showIntervention,
-                activeQueenSessionId
-        );
-        stateLiveData.postValue(debugState);
     }
 
     public void setAiConsent(String packageName, int consent) {
