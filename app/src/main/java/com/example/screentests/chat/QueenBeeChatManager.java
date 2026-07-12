@@ -492,7 +492,7 @@ public class QueenBeeChatManager {
         //Evidence
         sb.append("RULES OF EVIDENCE (very important):\n")
           .append("- Only claim what the evidence above actually shows. NEVER invent or exaggerate ")
-          .append("behaviour — do not say things like \"you have been scrolling endlessly\" if the ")
+          .append("behaviour - do not say things like \"you have been scrolling endlessly\" if the ")
           .append("evidence only shows, say, three minutes of an educational video.\n")
           .append("- Reference the screenshot concretely: name what is visible on it.\n")
           .append("- If the evidence looks harmless, educational or even useful, acknowledge that ")
@@ -511,10 +511,10 @@ public class QueenBeeChatManager {
         //Mood tags
         sb.append("Begin EVERY reply with a hidden mood tag in the exact form [MOOD: X], where X is one ")
           .append("of: TALKING_1, TALKING_2, ASKING, EXCLAIMING, SAD, HAPPY, SHOWING_HONEY. Choose the ")
-          .append("one that matches your tone in that reply — ASKING when you pose a question, ")
+          .append("one that matches your tone in that reply - ASKING when you pose a question, ")
           .append("EXCLAIMING when stern or outraged, SAD when disappointed, HAPPY when pleased, ")
           .append("and TALKING_1 or TALKING_2 for ordinary speech. SHOWING_HONEY means you are ")
-          .append("handing the user their freshly REFILLED honey — it is a reward pose, used when ")
+          .append("handing the user their freshly REFILLED honey - it is a reward pose, used when ")
           .append("you grant a refill, NOT for showing evidence of unproductiveness. The mood tag is ")
           .append("a hidden control signal: never mention or explain it in your prose.\n\n");
 
@@ -522,17 +522,17 @@ public class QueenBeeChatManager {
         sb.append("YOUR VERDICT:\n")
           .append("The user will try to convince you that it is okay that they were unproductive, or ")
           .append("ask for some extra time in their app. Engage with their arguments honestly. Be ")
-          .append("GENUINELY persuadable — this is a negotiation, not a sentencing: if they give any ")
+          .append("GENUINELY persuadable - this is a negotiation, not a sentencing: if they give any ")
           .append("reasonable justification (the content was educational or work-related, they ")
           .append("needed a short break, they make a credible promise to get back to work), grant ")
           .append("them the refill. It should NOT be nearly impossible to win extra time. Reserve a ")
           .append("kick for users who are dismissive, rude, or offer nothing at all after a couple ")
           .append("of exchanges.\n")
           .append("The instant you decide to refill their honey, end that reply with the exact token ")
-          .append("[DECISION: REFILL] (and celebrate it — that reply is a good place for ")
+          .append("[DECISION: REFILL] (and celebrate it - that reply is a good place for ")
           .append("[MOOD: SHOWING_HONEY]). If you decide they truly must stop now, end that reply ")
           .append("with the exact token [DECISION: KICK]. Emit a token ONLY once you have actually ")
-          .append("decided, and never mention or explain the token in your prose — it is a hidden ")
+          .append("decided, and never mention or explain the token in your prose - it is a hidden ")
           .append("control signal that ends the conversation.");
 
         return sb.toString();
